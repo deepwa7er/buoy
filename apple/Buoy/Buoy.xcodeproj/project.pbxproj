@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		806CB21E2FC69BB900A34AF8 /* BuoyCore in Frameworks */ = {isa = PBXBuildFile; productRef = 806CB21D2FC69BB900A34AF8 /* BuoyCore */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		806CB2082FC68BC000A34AF8 /* Buoy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Buoy.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -23,6 +27,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				806CB21E2FC69BB900A34AF8 /* BuoyCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -65,6 +70,7 @@
 			);
 			name = Buoy;
 			packageProductDependencies = (
+				806CB21D2FC69BB900A34AF8 /* BuoyCore */,
 			);
 			productName = Buoy;
 			productReference = 806CB2082FC68BC000A34AF8 /* Buoy.app */;
@@ -94,6 +100,9 @@
 			);
 			mainGroup = 806CB1FF2FC68BBF00A34AF8;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				806CB21C2FC69BB900A34AF8 /* XCLocalSwiftPackageReference "../BuoyCorePackage" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 806CB2092FC68BC000A34AF8 /* Products */;
 			projectDirPath = "";
@@ -351,6 +360,20 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		806CB21C2FC69BB900A34AF8 /* XCLocalSwiftPackageReference "../BuoyCorePackage" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../BuoyCorePackage;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		806CB21D2FC69BB900A34AF8 /* BuoyCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = BuoyCore;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 806CB2002FC68BBF00A34AF8 /* Project object */;
 }

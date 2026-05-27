@@ -112,9 +112,16 @@ build-xcframework: build-apple build-bindings
     cp generated/swift/buoy_apple_ffi.swift dist/BuoyCore.swift
     rm -rf dist/staging
 
+    # Stage into the Swift Package consumed by the Xcode project.
+    pkg="apple/BuoyCorePackage"
+    rm -rf "$pkg/Artifacts/BuoyCore.xcframework" "$pkg/Sources/BuoyCore/BuoyCore.swift"
+    cp -R dist/BuoyCore.xcframework "$pkg/Artifacts/BuoyCore.xcframework"
+    cp dist/BuoyCore.swift "$pkg/Sources/BuoyCore/BuoyCore.swift"
+
     echo ""
-    echo "==> dist/BuoyCore.xcframework"
-    echo "==> dist/BuoyCore.swift (drag into Xcode alongside the xcframework)"
+    echo "==> dist/BuoyCore.xcframework  (shareable artifact)"
+    echo "==> dist/BuoyCore.swift        (shareable artifact)"
+    echo "==> $pkg                       (consumed by the Xcode project)"
 
 # Build the core crate for every target on every platform.
 build-all: build-apple build-linux
