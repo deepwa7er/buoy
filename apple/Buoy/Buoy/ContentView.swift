@@ -1,6 +1,10 @@
 import BuoyCore
 import SwiftUI
 
+#if os(macOS)
+import AppKit
+#endif
+
 @MainActor
 @Observable
 final class ThoughtListModel {
@@ -58,6 +62,9 @@ final class ThoughtListModel {
 struct ContentView: View {
     @State private var model = ThoughtListModel()
     @FocusState private var composerFocused: Bool
+    #if os(macOS)
+    @State private var returnMonitor: Any?
+    #endif
 
     var body: some View {
         VStack(spacing: 0) {
@@ -72,23 +79,27 @@ struct ContentView: View {
             Divider()
 
             HStack(alignment: .bottom, spacing: 8) {
-                TextField("What's on your mind?", text: $model.draft, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .lineLimit(1...8)
-                    .focused($composerFocused)
-                    .onKeyPress(keys: [.return]) { keyPress in
-                        // Shift+Return inserts a literal newline; bare Return saves.
-                        if keyPress.modifiers.contains(.shift) {
-                            return .ignored
-                        }
-                        Task { await model.save() }
-                        return .handled
+                ZStack(alignment: .topLeading) {
+                    TextEditor(text: $model.draft)
+                        .scrollContentBackground(.hidden)
+                        .focused($composerFocused)
+                        .frame(minHeight: 15, maxHeight: 80)
+                        .modifier(BareReturnSubmits {
+                            Task { await model.save() }
+                        })
+
+                    if model.draft.isEmpty {
+                        Text("What's on your mind?")
+                            .foregroundStyle(.tertiary)
+                            .padding(.leading, 5)
+                            .padding(.top, 8)
+                            .allowsHitTesting(false)
                     }
+                }
 
                 Button("Save") {
                     Task { await model.save() }
                 }
-                .keyboardShortcut(.defaultAction)
                 .disabled(model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
             .padding(12)
@@ -97,6 +108,10 @@ struct ContentView: View {
             await model.open()
             composerFocused = true
         }
+        #if os(macOS)
+        .onAppear { installReturnMonitor() }
+        .onDisappear { removeReturnMonitor() }
+        #endif
         .alert(
             "Error",
             isPresented: Binding(
@@ -110,6 +125,56 @@ struct ContentView: View {
                 Text(model.errorMessage ?? "")
             }
         )
+    }
+
+    #if os(macOS)
+    private func installReturnMonitor() {
+        // SwiftUI's `.onKeyPress` does not let an `.ignored` Return fall
+        // through to the multi-line TextField's newline insertion, so on
+        // macOS we intercept Return at the AppKit level instead. Bare
+        // Return is consumed and routed to save; Shift+Return is passed
+        // through so the TextField inserts a literal newline.
+        returnMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            // 36 is the main Return key; 76 is the numeric-keypad Enter.
+            guard event.keyCode == 36 || event.keyCode == 76 else { return event }
+            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            if flags.contains(.shift) {
+                return event
+            }
+            Task { await model.save() }
+            return nil
+        }
+    }
+
+    private func removeReturnMonitor() {
+        if let monitor = returnMonitor {
+            NSEvent.removeMonitor(monitor)
+            returnMonitor = nil
+        }
+    }
+    #endif
+}
+
+/// Bare Return submits; Shift+Return inserts a newline. On macOS this is
+/// handled at the AppKit level (see `installReturnMonitor`), so the
+/// modifier is a no-op there to avoid SwiftUI's surprising `.onKeyPress`
+/// behavior. iOS has no Shift modifier on the on-screen keyboard, so the
+/// `.onKeyPress` form is sufficient.
+private struct BareReturnSubmits: ViewModifier {
+    let action: () -> Void
+
+    func body(content: Content) -> some View {
+        #if os(macOS)
+        content
+        #else
+        content.onKeyPress(keys: [.return]) { keyPress in
+            if keyPress.modifiers.contains(.shift) {
+                return .ignored
+            }
+            action()
+            return .handled
+        }
+        #endif
     }
 }
 
