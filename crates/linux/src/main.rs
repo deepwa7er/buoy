@@ -101,6 +101,20 @@ fn build_ui(app: &Application) {
         .child(&main_box)
         .build();
 
+    // Force-settle every live thought when the user closes the window.
+    // Linux has no scene-phase model, so window close is the natural
+    // settling point: it draws a clean line under "this capture session"
+    // before the next one starts.
+    {
+        let store = Rc::clone(&store);
+        window.connect_close_request(move |_| {
+            if let Err(err) = store.settle_all_live() {
+                eprintln!("buoy: settle on close failed: {err}");
+            }
+            Propagation::Proceed
+        });
+    }
+
     // start_editing: enter edit mode for the given thought.
     let start_editing = {
         let editing_id = Rc::clone(&editing_id);
@@ -247,12 +261,20 @@ fn make_row(thought: &Thought) -> ListBoxRow {
         .xalign(0.0)
         .build();
 
-    let timestamp = Label::builder()
-        .label(format_relative(thought.created_at, now_unix_millis()))
-        .xalign(0.0)
-        .build();
+    let relative = format_relative(thought.created_at, now_unix_millis());
+    // Live thoughts get a leading bullet next to the timestamp. Settled
+    // thoughts use the default caption styling.
+    let timestamp_text = if thought.is_settled {
+        relative
+    } else {
+        format!("• {relative}")
+    };
+    let timestamp = Label::builder().label(timestamp_text).xalign(0.0).build();
     timestamp.add_css_class("caption");
     timestamp.add_css_class("dim-label");
+    if !thought.is_settled {
+        timestamp.add_css_class("accent");
+    }
 
     let row_box = GtkBox::builder()
         .orientation(Orientation::Vertical)

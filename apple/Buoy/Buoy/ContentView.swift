@@ -38,6 +38,18 @@ final class ThoughtListModel {
         }
     }
 
+    /// Force every currently-live thought to settle. Called when the scene
+    /// moves to the background so a returning user's next edit is treated
+    /// as a deliberate modification rather than a continuation.
+    func settleAllLive() async {
+        guard let store else { return }
+        do {
+            try store.settleAllLive()
+        } catch {
+            errorMessage = "Failed to settle thoughts: \(error.localizedDescription)"
+        }
+    }
+
     func startEditing(_ thought: Thought) {
         draft = thought.text
         editingId = thought.id
@@ -82,6 +94,7 @@ final class ThoughtListModel {
 struct ContentView: View {
     @State private var model = ThoughtListModel()
     @FocusState private var composerFocused: Bool
+    @Environment(\.scenePhase) private var scenePhase
     #if os(macOS)
     @State private var keyMonitor: Any?
     #endif
@@ -136,6 +149,18 @@ struct ContentView: View {
         .task {
             await model.open()
             composerFocused = true
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            switch newPhase {
+            case .background, .inactive:
+                Task { await model.settleAllLive() }
+            case .active:
+                // Refresh so any thoughts that crossed the settle window
+                // (or were force-settled on the way out) show up correctly.
+                Task { await model.refresh() }
+            @unknown default:
+                break
+            }
         }
         #if os(macOS)
         .onAppear { installKeyMonitor() }
@@ -241,12 +266,20 @@ private struct ThoughtRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(thought.text)
-            Text(
-                Date(timeIntervalSince1970: Double(thought.createdAt) / 1000),
-                style: .relative
-            )
-            .font(.caption)
-            .foregroundStyle(.secondary)
+            HStack(spacing: 5) {
+                if !thought.isSettled {
+                    Circle()
+                        .fill(.tint)
+                        .frame(width: 5, height: 5)
+                        .help("Live — edits will overwrite without history")
+                }
+                Text(
+                    Date(timeIntervalSince1970: Double(thought.createdAt) / 1000),
+                    style: .relative
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
         }
         .padding(.vertical, 4)
     }
