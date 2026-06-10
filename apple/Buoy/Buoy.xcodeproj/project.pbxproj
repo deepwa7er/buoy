@@ -8,10 +8,12 @@
 
 /* Begin PBXBuildFile section */
 		806CB21E2FC69BB900A34AF8 /* BuoyCore in Frameworks */ = {isa = PBXBuildFile; productRef = 806CB21D2FC69BB900A34AF8 /* BuoyCore */; };
+		806CB2302FC7A10000A34AF8 /* all-MiniLM-L6-v2 in Resources */ = {isa = PBXBuildFile; fileRef = 806CB22F2FC7A10000A34AF8 /* all-MiniLM-L6-v2 */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		806CB2082FC68BC000A34AF8 /* Buoy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Buoy.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		806CB22F2FC7A10000A34AF8 /* all-MiniLM-L6-v2 */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "all-MiniLM-L6-v2"; path = "../../models/all-MiniLM-L6-v2"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -38,6 +40,7 @@
 			isa = PBXGroup;
 			children = (
 				806CB20A2FC68BC000A34AF8 /* Buoy */,
+				806CB22F2FC7A10000A34AF8 /* all-MiniLM-L6-v2 */,
 				806CB2092FC68BC000A34AF8 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -118,6 +121,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				806CB2302FC7A10000A34AF8 /* all-MiniLM-L6-v2 in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

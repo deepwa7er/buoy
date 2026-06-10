@@ -37,8 +37,30 @@ final class ThoughtListModel {
             let path = try Self.storeURL().path
             store = try ThoughtStore.open(path: path)
             await refresh()
+            attachEmbedderInBackground()
         } catch {
             errorMessage = "Failed to open store: \(error.localizedDescription)"
+        }
+    }
+
+    /// Load the bundled embedding model and attach it off the main actor
+    /// (loading takes a few hundred milliseconds), then backfill vectors
+    /// for thoughts captured before the embedder was ready. Semantic
+    /// search is an enhancement: with no bundled model or a load failure,
+    /// search stays keyword-only and the app works normally.
+    private func attachEmbedderInBackground() {
+        guard let store else { return }
+        Task.detached(priority: .utility) {
+            guard let modelDir = Bundle.main.url(forResource: "all-MiniLM-L6-v2", withExtension: nil)
+            else { return }
+            do {
+                try store.attachEmbedder(modelDir: modelDir.path)
+                // Small batches keep the store lock holds short so captures
+                // are never blocked for long during the backfill.
+                while try store.embedMissing(limit: 8) > 0 {}
+            } catch {
+                print("buoy: semantic search unavailable: \(error)")
+            }
         }
     }
 
@@ -105,7 +127,7 @@ final class ThoughtListModel {
     private func runSearch(_ query: String) async {
         guard let store else { return }
         do {
-            searchResults = try store.searchText(query: query, limit: 50)
+            searchResults = try store.searchCombined(query: query, limit: 50)
         } catch {
             errorMessage = "Search failed: \(error.localizedDescription)"
         }

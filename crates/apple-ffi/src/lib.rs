@@ -11,12 +11,13 @@
 
 #![allow(unsafe_code)]
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use buoy_core::{
-    Cursor as CoreCursor, Error as CoreError, MatchRange as CoreMatchRange, Page as CorePage,
-    Thought as CoreThought, ThoughtMatch as CoreThoughtMatch, ThoughtStore as CoreStore,
+    Cursor as CoreCursor, Error as CoreError, MatchRange as CoreMatchRange, MiniLmEmbedder,
+    Page as CorePage, Thought as CoreThought, ThoughtMatch as CoreThoughtMatch,
+    ThoughtStore as CoreStore,
 };
 use uuid::Uuid;
 
@@ -136,12 +137,19 @@ pub enum FfiError {
     InvalidId { message: String },
     #[error("not found")]
     NotFound,
+    #[error("embedding error: {message}")]
+    Embedding { message: String },
 }
 
 impl From<CoreError> for FfiError {
     fn from(value: CoreError) -> Self {
         match value {
             CoreError::NotFound { .. } => Self::NotFound,
+            embedding @ (CoreError::ModelLoad { .. }
+            | CoreError::Embedding { .. }
+            | CoreError::NoEmbedder) => Self::Embedding {
+                message: embedding.to_string(),
+            },
             other => Self::Storage {
                 message: other.to_string(),
             },
@@ -233,15 +241,35 @@ impl ThoughtStore {
         Ok(guard.list_paginated(before, limit as usize)?.into())
     }
 
-    /// Full-text search over thought text, best matches first. `query` is
-    /// raw user input; the final word matches as a prefix so results stay
-    /// useful while the user is still typing.
-    pub fn search_text(&self, query: &str, limit: u32) -> Result<Vec<ThoughtMatch>, FfiError> {
+    /// Combined keyword + semantic search, best matches first. `query` is
+    /// raw user input; the final word matches as a prefix on the keyword
+    /// side so results stay useful while the user is still typing.
+    /// Degrades to keyword-only when no embedder is attached.
+    pub fn search_combined(&self, query: &str, limit: u32) -> Result<Vec<ThoughtMatch>, FfiError> {
         let guard = self.inner.lock().expect("ThoughtStore mutex poisoned");
         Ok(guard
-            .search_text(query, limit as usize)?
+            .search_combined(query, limit as usize)?
             .into_iter()
             .map(Into::into)
             .collect())
+    }
+
+    /// Load the embedding model from `model_dir` and attach it to the
+    /// store. Loading takes a few hundred milliseconds — call from a
+    /// background task, then drain `embed_missing`.
+    pub fn attach_embedder(&self, model_dir: &str) -> Result<(), FfiError> {
+        let embedder = MiniLmEmbedder::load(Path::new(model_dir))?;
+        let guard = self.inner.lock().expect("ThoughtStore mutex poisoned");
+        guard.set_embedder(Box::new(embedder));
+        Ok(())
+    }
+
+    /// Embed up to `limit` thoughts that have no stored vector yet.
+    /// Returns how many were embedded; call repeatedly until it returns 0.
+    /// Keep `limit` small — the store lock is held while embedding.
+    pub fn embed_missing(&self, limit: u32) -> Result<u32, FfiError> {
+        let guard = self.inner.lock().expect("ThoughtStore mutex poisoned");
+        let count = guard.embed_missing(limit as usize)?;
+        Ok(u32::try_from(count).expect("count bounded by u32 limit"))
     }
 }

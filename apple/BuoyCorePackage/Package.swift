@@ -28,7 +28,12 @@ let package = Package(
         .target(
             name: "BuoyCore",
             dependencies: ["BuoyCoreFFI"],
-            path: "Sources/BuoyCore"
+            path: "Sources/BuoyCore",
+            linkerSettings: [
+                // The Rust core's candle backend uses Accelerate for its
+                // matrix math on Apple platforms.
+                .linkedFramework("Accelerate")
+            ]
         ),
     ]
 )
