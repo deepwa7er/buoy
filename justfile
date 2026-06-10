@@ -21,9 +21,29 @@ bindgen_target := "aarch64-apple-darwin"
 default:
     @just --list
 
+# Fetch the all-MiniLM-L6-v2 embedding model (~91MB, not committed).
+# Required for semantic search and for `just test-semantic`.
+fetch-model:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    dir="models/all-MiniLM-L6-v2"
+    mkdir -p "$dir"
+    for f in model.safetensors tokenizer.json config.json; do
+        if [ ! -f "$dir/$f" ]; then
+            echo "==> $f"
+            curl -sL -o "$dir/$f" \
+                "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/$f"
+        fi
+    done
+    ls -la "$dir"
+
 # Run all core tests on the host
 test:
     cargo test --workspace
+
+# Run the embedding tests that need the real model (see fetch-model).
+test-semantic: fetch-model
+    cargo test --workspace --release -- --ignored
 
 # Lint with clippy (warnings as errors)
 lint:

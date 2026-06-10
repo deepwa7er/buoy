@@ -25,6 +25,19 @@ pub enum Error {
     /// No thought with the given id exists.
     #[error("no thought with id {id}")]
     NotFound { id: Uuid },
+
+    /// The embedding model could not be loaded from disk.
+    #[error("could not load embedding model: {detail}")]
+    ModelLoad { detail: String },
+
+    /// Computing an embedding failed.
+    #[error("embedding failed: {detail}")]
+    Embedding { detail: String },
+
+    /// A semantic operation was requested but no embedder is attached to
+    /// the store (e.g. the model file isn't available on this device).
+    #[error("no embedder attached to the store")]
+    NoEmbedder,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

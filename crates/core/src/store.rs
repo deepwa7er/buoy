@@ -1,9 +1,12 @@
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use rusqlite::{Connection, OptionalExtension, params};
 use uuid::Uuid;
 
+use crate::embed::{TextEmbedder, blob_to_vector, dot, vector_to_blob};
 use crate::error::{Error, Result};
 use crate::search::{
     MATCH_MARK_END, MATCH_MARK_START, SNIPPET_TOKENS, ThoughtMatch, build_match_query,
@@ -11,7 +14,17 @@ use crate::search::{
 };
 use crate::thought::{EditEntry, Thought};
 
-const SCHEMA_VERSION: i32 = 3;
+const SCHEMA_VERSION: i32 = 4;
+
+/// Semantic results below this cosine similarity are dropped: they read as
+/// noise to the user. Initial heuristic calibrated against the Phase 3
+/// spike numbers (unrelated pairs scored 0.05–0.12, related 0.48–0.53).
+const MIN_SEMANTIC_SIMILARITY: f32 = 0.25;
+
+/// Constant in reciprocal-rank-fusion scoring (`1 / (K + rank)`), the
+/// standard value from the RRF literature. Higher K flattens the
+/// difference between rank positions.
+const RRF_K: f32 = 60.0;
 
 /// How long a thought stays "live" since its last edit. Edits within this
 /// window silently overwrite; later edits archive the prior text into
@@ -53,6 +66,10 @@ pub struct Page {
 /// such as a `Mutex`.
 pub struct ThoughtStore {
     conn: Connection,
+    /// When attached, new and edited thoughts are embedded on write and
+    /// semantic search becomes available. Optional because the model file
+    /// may not be present on a device; everything else degrades cleanly.
+    embedder: RefCell<Option<Box<dyn TextEmbedder>>>,
 }
 
 impl ThoughtStore {
@@ -62,7 +79,10 @@ impl ThoughtStore {
             path: path.to_path_buf(),
             source,
         })?;
-        let store = Self { conn };
+        let store = Self {
+            conn,
+            embedder: RefCell::new(None),
+        };
         store.configure()?;
         store.migrate()?;
         Ok(store)
@@ -71,21 +91,47 @@ impl ThoughtStore {
     /// Open an in-memory store. Intended for tests and ephemeral use.
     pub fn open_in_memory() -> Result<Self> {
         let conn = Connection::open_in_memory()?;
-        let store = Self { conn };
+        let store = Self {
+            conn,
+            embedder: RefCell::new(None),
+        };
         store.configure()?;
         store.migrate()?;
         Ok(store)
+    }
+
+    /// Attach an embedder. From here on, captures and edits are embedded
+    /// on write, and `search_semantic` / the semantic half of
+    /// `search_combined` are available. Call `embed_missing` afterwards to
+    /// backfill thoughts captured while no embedder was attached.
+    pub fn set_embedder(&self, embedder: Box<dyn TextEmbedder>) {
+        *self.embedder.borrow_mut() = Some(embedder);
+    }
+
+    /// Whether an embedder is currently attached.
+    pub fn has_embedder(&self) -> bool {
+        self.embedder.borrow().is_some()
     }
 
     /// Capture a new thought with the current wall-clock timestamp.
     pub fn create(&self, text: &str) -> Result<Thought> {
         let now = now_unix_millis();
         let id = Uuid::new_v4();
-        self.conn.execute(
+        // Computed before the transaction so the model doesn't run inside it.
+        let vector = self.try_embed(text);
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute(
             "INSERT INTO thoughts (id, text, created_at, updated_at, settled_at)
              VALUES (?1, ?2, ?3, ?3, NULL)",
             params![id.as_bytes().as_slice(), text, now],
         )?;
+        if let Some(vector) = vector {
+            tx.execute(
+                "INSERT INTO embeddings (thought_id, vector) VALUES (?1, ?2)",
+                params![id.as_bytes().as_slice(), vector_to_blob(&vector)],
+            )?;
+        }
+        tx.commit()?;
         Ok(Thought {
             id,
             text: text.to_owned(),
@@ -95,11 +141,21 @@ impl ThoughtStore {
         })
     }
 
+    /// Embed `text` if an embedder is attached. Embedding *errors* are
+    /// deliberately swallowed here: capture and edit must never fail
+    /// because the model hiccuped. The missing vector is picked up later
+    /// by `embed_missing`, which does surface errors.
+    fn try_embed(&self, text: &str) -> Option<Vec<f32>> {
+        self.embedder.borrow().as_ref()?.embed(text).ok()
+    }
+
     /// Replace the text of `id`. If the thought is currently settled, the
     /// prior text is archived into `edit_history` and the thought is
     /// returned to live state (its `settled_at` is cleared).
     pub fn update_thought(&self, id: Uuid, new_text: &str) -> Result<Thought> {
         let now = now_unix_millis();
+        // Computed before the transaction so the model doesn't run inside it.
+        let vector = self.try_embed(new_text);
         let tx = self.conn.unchecked_transaction()?;
 
         let current: Option<(String, i64, i64, Option<i64>)> = tx
@@ -128,6 +184,24 @@ impl ThoughtStore {
              WHERE id = ?3",
             params![new_text, now, id.as_bytes().as_slice()],
         )?;
+
+        match vector {
+            // The text changed, so a re-embed is required either way:
+            // replace the vector when we have one, drop the stale one
+            // when we don't (embed_missing will recompute it).
+            Some(vector) => {
+                tx.execute(
+                    "INSERT OR REPLACE INTO embeddings (thought_id, vector) VALUES (?1, ?2)",
+                    params![id.as_bytes().as_slice(), vector_to_blob(&vector)],
+                )?;
+            }
+            None => {
+                tx.execute(
+                    "DELETE FROM embeddings WHERE thought_id = ?1",
+                    params![id.as_bytes().as_slice()],
+                )?;
+            }
+        }
 
         tx.commit()?;
 
@@ -312,6 +386,140 @@ impl ThoughtStore {
         Ok(matches)
     }
 
+    /// Embed up to `limit` thoughts that have no stored vector, newest
+    /// first. Backfills thoughts captured while no embedder was attached
+    /// (including everything that predates the embeddings schema) and
+    /// retries writes whose inline embedding failed. Returns how many
+    /// thoughts were embedded; call repeatedly until it returns 0.
+    pub fn embed_missing(&self, limit: usize) -> Result<usize> {
+        let embedder_ref = self.embedder.borrow();
+        let Some(embedder) = embedder_ref.as_ref() else {
+            return Err(Error::NoEmbedder);
+        };
+
+        let mut stmt = self.conn.prepare(
+            "SELECT t.id, t.text
+             FROM thoughts t
+             LEFT JOIN embeddings e ON e.thought_id = t.id
+             WHERE e.thought_id IS NULL
+             ORDER BY t.created_at DESC
+             LIMIT ?1",
+        )?;
+        let pending = stmt
+            .query_map(params![i64::try_from(limit).unwrap_or(i64::MAX)], |row| {
+                Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, String>(1)?))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        drop(stmt);
+
+        let mut count = 0;
+        for (id_blob, text) in pending {
+            let id = uuid_from_blob(&id_blob)?;
+            let vector = embedder.embed(&text)?;
+            self.conn.execute(
+                "INSERT OR REPLACE INTO embeddings (thought_id, vector) VALUES (?1, ?2)",
+                params![id.as_bytes().as_slice(), vector_to_blob(&vector)],
+            )?;
+            count += 1;
+        }
+        Ok(count)
+    }
+
+    /// Semantic search: embed `query` and rank stored thoughts by cosine
+    /// similarity, best first. Results below `MIN_SEMANTIC_SIMILARITY`
+    /// are dropped. Semantic matches carry the whole thought text as their
+    /// snippet and no highlight ranges — there are no matched terms to
+    /// point at. Errors with `NoEmbedder` when no embedder is attached.
+    pub fn search_semantic(&self, query: &str, top_k: usize) -> Result<Vec<ThoughtMatch>> {
+        let embedder_ref = self.embedder.borrow();
+        let Some(embedder) = embedder_ref.as_ref() else {
+            return Err(Error::NoEmbedder);
+        };
+        let query_vector = embedder.embed(query)?;
+        let now = now_unix_millis();
+
+        let mut stmt = self.conn.prepare(
+            "SELECT t.id, t.text, t.created_at, t.updated_at, t.settled_at, e.vector
+             FROM embeddings e
+             JOIN thoughts t ON t.id = e.thought_id",
+        )?;
+        let mut rows = stmt.query([])?;
+        let mut scored = Vec::new();
+        while let Some(row) = rows.next()? {
+            let raw = parse_thought_row(row)?;
+            let blob: Vec<u8> = row.get(5)?;
+            let vector = blob_to_vector(&blob)?;
+            if vector.len() != query_vector.len() {
+                return Err(Error::CorruptRow {
+                    table: "embeddings",
+                    detail: format!(
+                        "stored vector has {} dims, query has {}",
+                        vector.len(),
+                        query_vector.len()
+                    ),
+                });
+            }
+            let similarity = dot(&query_vector, &vector);
+            if similarity >= MIN_SEMANTIC_SIMILARITY {
+                scored.push((similarity, raw));
+            }
+        }
+
+        scored.sort_by(|a, b| b.0.total_cmp(&a.0));
+        Ok(scored
+            .into_iter()
+            .take(top_k)
+            .map(|(_, raw)| {
+                let thought = into_thought(raw, now);
+                ThoughtMatch {
+                    snippet: thought.text.clone(),
+                    ranges: Vec::new(),
+                    thought,
+                }
+            })
+            .collect())
+    }
+
+    /// Combined search: keyword (FTS5) and semantic results merged with
+    /// reciprocal-rank fusion. Degrades to keyword-only when no embedder
+    /// is attached, so the platform UIs can call this unconditionally.
+    /// When a thought appears in both lists, the keyword version wins the
+    /// representation (it carries snippet highlights) and the fused score
+    /// ranks it higher than either list alone would.
+    pub fn search_combined(&self, query: &str, top_k: usize) -> Result<Vec<ThoughtMatch>> {
+        let keyword = self.search_text(query, top_k)?;
+        let semantic = if self.has_embedder() {
+            self.search_semantic(query, top_k)?
+        } else {
+            Vec::new()
+        };
+
+        let mut fused: Vec<(f32, ThoughtMatch)> = Vec::new();
+        let mut index_of: HashMap<Uuid, usize> = HashMap::new();
+        for list in [keyword, semantic] {
+            for (rank, item) in list.into_iter().enumerate() {
+                let rank_f = f32::from(u16::try_from(rank).unwrap_or(u16::MAX));
+                let score = 1.0 / (RRF_K + rank_f + 1.0);
+                if let Some(&i) = index_of.get(&item.thought.id) {
+                    fused[i].0 += score;
+                    if fused[i].1.ranges.is_empty() && !item.ranges.is_empty() {
+                        fused[i].1 = item;
+                    }
+                } else {
+                    index_of.insert(item.thought.id, fused.len());
+                    fused.push((score, item));
+                }
+            }
+        }
+
+        fused.sort_by(|a, b| {
+            b.0.total_cmp(&a.0)
+                .then_with(|| b.1.thought.created_at.cmp(&a.1.thought.created_at))
+        });
+        fused.truncate(top_k);
+        Ok(fused.into_iter().map(|(_, item)| item).collect())
+    }
+
     fn configure(&self) -> Result<()> {
         // Foreign-key enforcement is off by default in SQLite; we need it
         // on for the edit_history -> thoughts CASCADE delete.
@@ -390,6 +598,19 @@ impl ThoughtStore {
                     INSERT INTO thoughts_fts (rowid, text)
                     VALUES (new.rowid, new.text);
                 END;",
+            )?;
+        }
+
+        if current < 4 {
+            // 384-dim f32 vectors as little-endian BLOBs (1536 bytes), one
+            // per embedded thought. Rows are absent (not NULL) for thoughts
+            // that haven't been embedded yet; `embed_missing` backfills.
+            self.conn.execute_batch(
+                "CREATE TABLE embeddings (
+                    thought_id BLOB PRIMARY KEY NOT NULL
+                        REFERENCES thoughts(id) ON DELETE CASCADE,
+                    vector     BLOB NOT NULL
+                );",
             )?;
         }
 
@@ -893,6 +1114,231 @@ mod tests {
         let matches = store.search_text("searchable", 10).unwrap();
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].thought.text, "pre-existing searchable row");
+    }
+
+    /// Deterministic test embedder: one dimension per *concept* (set to 1
+    /// when the text contains any of the concept's words) plus a small
+    /// constant bias dimension so no vector is ever zero, then
+    /// L2-normalized. Synonyms land on the same dimension — "milk" and
+    /// "cheese" are semantically close while sharing no keyword — and
+    /// texts sharing no concepts score ~0.06, safely under
+    /// `MIN_SEMANTIC_SIMILARITY`.
+    struct VocabEmbedder;
+
+    const CONCEPTS: [&[&str]; 3] = [
+        &["milk", "cheese"],
+        &["boat", "sailing"],
+        &["rust", "compiler"],
+    ];
+
+    impl TextEmbedder for VocabEmbedder {
+        fn embed(&self, text: &str) -> Result<Vec<f32>> {
+            let lower = text.to_lowercase();
+            let mut v = vec![0.0_f32; CONCEPTS.len() + 1];
+            for (i, words) in CONCEPTS.iter().enumerate() {
+                if words.iter().any(|word| lower.contains(word)) {
+                    v[i] = 1.0;
+                }
+            }
+            v[CONCEPTS.len()] = 0.25;
+            let norm = v.iter().map(|x| x * x).sum::<f32>().sqrt();
+            Ok(v.into_iter().map(|x| x / norm).collect())
+        }
+    }
+
+    /// Embedder that always fails — exercises the capture-must-not-fail
+    /// contract.
+    struct FailingEmbedder;
+
+    impl TextEmbedder for FailingEmbedder {
+        fn embed(&self, _text: &str) -> Result<Vec<f32>> {
+            Err(Error::Embedding {
+                detail: "synthetic failure".into(),
+            })
+        }
+    }
+
+    fn embedding_count(store: &ThoughtStore) -> i64 {
+        store
+            .conn
+            .query_row("SELECT count(*) FROM embeddings", [], |row| row.get(0))
+            .unwrap()
+    }
+
+    #[test]
+    fn create_with_embedder_stores_a_vector() {
+        let store = ThoughtStore::open_in_memory().unwrap();
+        store.set_embedder(Box::new(VocabEmbedder));
+        store.create("milk run").unwrap();
+        assert_eq!(embedding_count(&store), 1);
+    }
+
+    #[test]
+    fn create_without_embedder_stores_no_vector_and_backfill_catches_up() {
+        let store = ThoughtStore::open_in_memory().unwrap();
+        store.create("milk run").unwrap();
+        store.create("boat trip").unwrap();
+        assert_eq!(embedding_count(&store), 0);
+
+        store.set_embedder(Box::new(VocabEmbedder));
+        assert_eq!(store.embed_missing(1).unwrap(), 1);
+        assert_eq!(store.embed_missing(10).unwrap(), 1);
+        assert_eq!(store.embed_missing(10).unwrap(), 0);
+        assert_eq!(embedding_count(&store), 2);
+    }
+
+    #[test]
+    fn embed_missing_without_embedder_errors() {
+        let store = ThoughtStore::open_in_memory().unwrap();
+        assert!(matches!(
+            store.embed_missing(10).expect_err("should fail"),
+            Error::NoEmbedder
+        ));
+    }
+
+    #[test]
+    fn capture_and_edit_survive_a_failing_embedder() {
+        let store = ThoughtStore::open_in_memory().unwrap();
+        store.set_embedder(Box::new(VocabEmbedder));
+        let t = store.create("milk").unwrap();
+        assert_eq!(embedding_count(&store), 1);
+
+        // The embedder breaks; capture and edit must still work, and the
+        // edit must drop the now-stale vector rather than keep it.
+        store.set_embedder(Box::new(FailingEmbedder));
+        store.create("still captured").unwrap();
+        store.update_thought(t.id, "boat instead").unwrap();
+        assert_eq!(store.list().unwrap().len(), 2);
+        assert_eq!(embedding_count(&store), 0);
+
+        // A working embedder later picks both up via backfill.
+        store.set_embedder(Box::new(VocabEmbedder));
+        assert_eq!(store.embed_missing(10).unwrap(), 2);
+    }
+
+    #[test]
+    fn update_reembeds_the_new_text() {
+        let store = ThoughtStore::open_in_memory().unwrap();
+        store.set_embedder(Box::new(VocabEmbedder));
+        let t = store.create("milk and yogurt").unwrap();
+        store.update_thought(t.id, "boat maintenance").unwrap();
+
+        let results = store.search_semantic("boat", 10).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].thought.id, t.id);
+        assert!(store.search_semantic("milk", 10).unwrap().is_empty());
+    }
+
+    #[test]
+    fn delete_cascades_the_embedding() {
+        let store = ThoughtStore::open_in_memory().unwrap();
+        store.set_embedder(Box::new(VocabEmbedder));
+        let t = store.create("milk").unwrap();
+        assert_eq!(embedding_count(&store), 1);
+        store.delete_thought(t.id).unwrap();
+        assert_eq!(embedding_count(&store), 0);
+    }
+
+    #[test]
+    fn search_semantic_ranks_by_similarity_and_respects_top_k() {
+        let store = ThoughtStore::open_in_memory().unwrap();
+        store.set_embedder(Box::new(VocabEmbedder));
+        // Two concepts vs one vs none for the query "milk sailing".
+        let both = store.create("milk for the sailing trip").unwrap();
+        let one = store.create("just milk today").unwrap();
+        store.create("rust musings").unwrap();
+
+        let results = store.search_semantic("milk sailing", 10).unwrap();
+        assert_eq!(
+            results.len(),
+            2,
+            "rust thought is below the similarity floor"
+        );
+        assert_eq!(results[0].thought.id, both.id);
+        assert_eq!(results[1].thought.id, one.id);
+        // Semantic matches carry full text and no highlight ranges.
+        assert_eq!(results[0].snippet, results[0].thought.text);
+        assert!(results[0].ranges.is_empty());
+
+        assert_eq!(store.search_semantic("milk sailing", 1).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn search_semantic_without_embedder_errors() {
+        let store = ThoughtStore::open_in_memory().unwrap();
+        store.create("anything").unwrap();
+        assert!(matches!(
+            store
+                .search_semantic("anything", 5)
+                .expect_err("should fail"),
+            Error::NoEmbedder
+        ));
+    }
+
+    #[test]
+    fn search_combined_merges_keyword_and_semantic() {
+        let store = ThoughtStore::open_in_memory().unwrap();
+        store.set_embedder(Box::new(VocabEmbedder));
+        // Keyword-and-semantic hit ("milk" matches FTS and the vector).
+        let both = store.create("milk for the week").unwrap();
+        // Semantic-only hit: "cheese" shares the dairy concept dimension
+        // with "milk" but has no keyword overlap, so FTS misses it.
+        let semantic_only = store.create("cheese platter craving").unwrap();
+        store.create("borrow checker woes").unwrap();
+
+        let results = store.search_combined("milk", 10).unwrap();
+        let ids: Vec<Uuid> = results.iter().map(|m| m.thought.id).collect();
+        assert!(ids.contains(&both.id));
+        assert!(ids.contains(&semantic_only.id));
+        // Appearing in both lists outranks appearing in one.
+        assert_eq!(results[0].thought.id, both.id);
+        // The keyword representation (with highlights) wins for dual hits.
+        assert!(!results[0].ranges.is_empty());
+    }
+
+    #[test]
+    fn search_combined_degrades_to_keyword_only_without_embedder() {
+        let store = ThoughtStore::open_in_memory().unwrap();
+        store.create("plain keyword milk match").unwrap();
+        let results = store.search_combined("milk", 10).unwrap();
+        assert_eq!(results.len(), 1);
+        assert!(!results[0].ranges.is_empty());
+    }
+
+    #[test]
+    #[ignore = "requires models/all-MiniLM-L6-v2 — run via `just test-semantic`"]
+    fn semantic_search_with_real_model_on_fixture_corpus() {
+        let model_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../models/all-MiniLM-L6-v2");
+        let embedder = crate::embed::MiniLmEmbedder::load(&model_dir).unwrap();
+        let store = ThoughtStore::open_in_memory().unwrap();
+        store.set_embedder(Box::new(embedder));
+
+        store
+            .create("buy milk, eggs, and bread at the grocery store")
+            .unwrap();
+        store
+            .create("the sailboat needs a new jib before the regatta")
+            .unwrap();
+        store
+            .create("rust lifetimes make sense once you stop fighting them")
+            .unwrap();
+
+        // No keyword overlap with the groceries thought at all.
+        let results = store
+            .search_semantic("what food do I need to pick up", 2)
+            .unwrap();
+        assert!(!results.is_empty(), "semantic search found nothing");
+        assert!(
+            results[0].thought.text.contains("grocery"),
+            "expected the groceries thought first, got: {}",
+            results[0].thought.text
+        );
+
+        let combined = store.search_combined("sailboat regatta", 3).unwrap();
+        assert_eq!(
+            combined[0].thought.text,
+            "the sailboat needs a new jib before the regatta"
+        );
     }
 
     #[test]

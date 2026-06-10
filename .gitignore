@@ -36,3 +36,4 @@ apple/BuoyCorePackage/Artifacts/BuoyCore.xcframework/
 .vscode/
 *.swp
 *.swo
+models/
