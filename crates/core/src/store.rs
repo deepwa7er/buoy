@@ -5,9 +5,13 @@ use rusqlite::{Connection, OptionalExtension, params};
 use uuid::Uuid;
 
 use crate::error::{Error, Result};
+use crate::search::{
+    MATCH_MARK_END, MATCH_MARK_START, SNIPPET_TOKENS, ThoughtMatch, build_match_query,
+    extract_ranges,
+};
 use crate::thought::{EditEntry, Thought};
 
-const SCHEMA_VERSION: i32 = 2;
+const SCHEMA_VERSION: i32 = 3;
 
 /// How long a thought stays "live" since its last edit. Edits within this
 /// window silently overwrite; later edits archive the prior text into
@@ -266,6 +270,48 @@ impl ThoughtStore {
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
+    /// Full-text search over thought text, best matches first (BM25).
+    ///
+    /// `query` is raw user input — it is treated as literal words, with the
+    /// final word matched as a prefix so results stay useful mid-keystroke.
+    /// Input with nothing searchable in it returns an empty result set.
+    pub fn search_text(&self, query: &str, limit: usize) -> Result<Vec<ThoughtMatch>> {
+        let now = now_unix_millis();
+        let Some(match_query) = build_match_query(query) else {
+            return Ok(Vec::new());
+        };
+
+        let mut stmt = self.conn.prepare(
+            "SELECT t.id, t.text, t.created_at, t.updated_at, t.settled_at,
+                    snippet(thoughts_fts, 0, ?2, ?3, '…', ?4)
+             FROM thoughts_fts
+             JOIN thoughts t ON t.rowid = thoughts_fts.rowid
+             WHERE thoughts_fts MATCH ?1
+             ORDER BY rank
+             LIMIT ?5",
+        )?;
+        let mut rows = stmt.query(params![
+            match_query,
+            MATCH_MARK_START.to_string(),
+            MATCH_MARK_END.to_string(),
+            SNIPPET_TOKENS,
+            i64::try_from(limit).unwrap_or(i64::MAX),
+        ])?;
+
+        let mut matches = Vec::new();
+        while let Some(row) = rows.next()? {
+            let raw = parse_thought_row(row)?;
+            let marked_snippet: String = row.get(5)?;
+            let (snippet, ranges) = extract_ranges(&marked_snippet);
+            matches.push(ThoughtMatch {
+                thought: into_thought(raw, now),
+                snippet,
+                ranges,
+            });
+        }
+        Ok(matches)
+    }
+
     fn configure(&self) -> Result<()> {
         // Foreign-key enforcement is off by default in SQLite; we need it
         // on for the edit_history -> thoughts CASCADE delete.
@@ -310,6 +356,40 @@ impl ThoughtStore {
                 );
                 CREATE INDEX edit_history_thought_idx
                     ON edit_history (thought_id, archived_at);",
+            )?;
+        }
+
+        if current < 3 {
+            // External-content FTS5 index over `thoughts.text`. The
+            // triggers keep it in sync; the UPDATE trigger is scoped to
+            // `text` so settle/timestamp updates don't churn the index.
+            // The backfill covers rows that existed before this migration.
+            self.conn.execute_batch(
+                "CREATE VIRTUAL TABLE thoughts_fts USING fts5(
+                    text,
+                    content='thoughts',
+                    content_rowid='rowid',
+                    tokenize='unicode61 remove_diacritics 2'
+                );
+                INSERT INTO thoughts_fts (rowid, text)
+                    SELECT rowid, text FROM thoughts;
+                CREATE TRIGGER thoughts_fts_after_insert
+                AFTER INSERT ON thoughts BEGIN
+                    INSERT INTO thoughts_fts (rowid, text)
+                    VALUES (new.rowid, new.text);
+                END;
+                CREATE TRIGGER thoughts_fts_after_delete
+                AFTER DELETE ON thoughts BEGIN
+                    INSERT INTO thoughts_fts (thoughts_fts, rowid, text)
+                    VALUES ('delete', old.rowid, old.text);
+                END;
+                CREATE TRIGGER thoughts_fts_after_update
+                AFTER UPDATE OF text ON thoughts BEGIN
+                    INSERT INTO thoughts_fts (thoughts_fts, rowid, text)
+                    VALUES ('delete', old.rowid, old.text);
+                    INSERT INTO thoughts_fts (rowid, text)
+                    VALUES (new.rowid, new.text);
+                END;",
             )?;
         }
 
@@ -650,6 +730,169 @@ mod tests {
         let mut deduped = ids.clone();
         deduped.dedup();
         assert_eq!(ids, deduped);
+    }
+
+    #[test]
+    fn search_finds_thoughts_by_keyword() {
+        let store = ThoughtStore::open_in_memory().unwrap();
+        let groceries = store.create("buy milk and eggs").unwrap();
+        store.create("call the dentist").unwrap();
+
+        let matches = store.search_text("milk", 10).unwrap();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].thought, groceries);
+    }
+
+    #[test]
+    fn search_requires_all_words() {
+        let store = ThoughtStore::open_in_memory().unwrap();
+        store.create("rust compiler").unwrap();
+        store.create("rust on the bumper").unwrap();
+
+        let matches = store.search_text("rust compiler", 10).unwrap();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].thought.text, "rust compiler");
+    }
+
+    #[test]
+    fn search_matches_last_word_as_prefix() {
+        let store = ThoughtStore::open_in_memory().unwrap();
+        store.create("banana bread recipe").unwrap();
+
+        assert_eq!(store.search_text("ban", 10).unwrap().len(), 1);
+        assert_eq!(store.search_text("banana rec", 10).unwrap().len(), 1);
+        // Only the *last* word is a prefix; earlier words must be whole.
+        assert!(store.search_text("ban bread", 10).unwrap().is_empty());
+    }
+
+    #[test]
+    fn search_ranks_higher_term_frequency_first() {
+        let store = ThoughtStore::open_in_memory().unwrap();
+        store.create("sailing notes from the lake trip").unwrap();
+        store
+            .create("sailing sailing and more sailing this weekend")
+            .unwrap();
+
+        let matches = store.search_text("sailing", 10).unwrap();
+        assert_eq!(matches.len(), 2);
+        assert_eq!(
+            matches[0].thought.text,
+            "sailing sailing and more sailing this weekend"
+        );
+    }
+
+    #[test]
+    fn search_special_characters_do_not_error() {
+        let store = ThoughtStore::open_in_memory().unwrap();
+        store.create("don't forget the (important) thing*").unwrap();
+
+        for query in [
+            "don't",
+            "\"quoted\"",
+            "(important)",
+            "thing*",
+            "AND",
+            "OR",
+            "NEAR",
+            "milk OR eggs",
+            "—",
+            "***",
+            "🌊",
+        ] {
+            // Must never surface an FTS5 syntax error, whatever the input.
+            let _ = store.search_text(query, 10).unwrap();
+        }
+
+        assert_eq!(store.search_text("don't", 10).unwrap().len(), 1);
+        assert_eq!(store.search_text("important", 10).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn search_empty_query_returns_nothing() {
+        let store = ThoughtStore::open_in_memory().unwrap();
+        store.create("anything").unwrap();
+        assert!(store.search_text("", 10).unwrap().is_empty());
+        assert!(store.search_text("   ", 10).unwrap().is_empty());
+    }
+
+    #[test]
+    fn search_respects_limit() {
+        let store = ThoughtStore::open_in_memory().unwrap();
+        for i in 0..5 {
+            store.create(&format!("note number {i}")).unwrap();
+        }
+        assert_eq!(store.search_text("note", 3).unwrap().len(), 3);
+    }
+
+    #[test]
+    fn search_index_follows_updates_and_deletes() {
+        let store = ThoughtStore::open_in_memory().unwrap();
+        let t = store.create("original wording").unwrap();
+
+        store.update_thought(t.id, "revised phrasing").unwrap();
+        assert!(store.search_text("wording", 10).unwrap().is_empty());
+        assert_eq!(store.search_text("phrasing", 10).unwrap().len(), 1);
+
+        store.delete_thought(t.id).unwrap();
+        assert!(store.search_text("phrasing", 10).unwrap().is_empty());
+    }
+
+    #[test]
+    fn search_snippet_ranges_cover_matched_terms() {
+        let store = ThoughtStore::open_in_memory().unwrap();
+        store
+            .create("a fairly long thought about the moment the harbor buoy light blinked twice before dawn")
+            .unwrap();
+
+        let matches = store.search_text("buoy", 10).unwrap();
+        assert_eq!(matches.len(), 1);
+        let m = &matches[0];
+        // The thought is longer than the snippet window, so it truncates.
+        assert!(m.snippet.contains('…'));
+        assert_eq!(m.ranges.len(), 1);
+        let range = m.ranges[0];
+        assert_eq!(&m.snippet[range.start..range.start + range.len], "buoy");
+    }
+
+    #[test]
+    fn search_matches_ignore_diacritics() {
+        let store = ThoughtStore::open_in_memory().unwrap();
+        store.create("rendezvous at the café").unwrap();
+        assert_eq!(store.search_text("cafe", 10).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn migrating_pre_fts_database_backfills_the_index() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("buoy.sqlite");
+        {
+            let conn = rusqlite::Connection::open(&path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE thoughts (
+                    id         BLOB    PRIMARY KEY NOT NULL,
+                    text       TEXT    NOT NULL,
+                    created_at INTEGER NOT NULL
+                );
+                CREATE INDEX thoughts_created_at_idx ON thoughts (created_at DESC);
+                PRAGMA user_version = 1;",
+            )
+            .unwrap();
+            let id = Uuid::new_v4();
+            conn.execute(
+                "INSERT INTO thoughts (id, text, created_at) VALUES (?1, ?2, ?3)",
+                params![
+                    id.as_bytes().as_slice(),
+                    "pre-existing searchable row",
+                    1_700_000_000_000_i64
+                ],
+            )
+            .unwrap();
+        }
+
+        let store = ThoughtStore::open(&path).unwrap();
+        let matches = store.search_text("searchable", 10).unwrap();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].thought.text, "pre-existing searchable row");
     }
 
     #[test]

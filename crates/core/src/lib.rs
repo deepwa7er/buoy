@@ -5,9 +5,11 @@
 //! at the repository root for design and roadmap.
 
 mod error;
+mod search;
 mod store;
 mod thought;
 
 pub use error::{Error, Result};
+pub use search::{MatchRange, ThoughtMatch};
 pub use store::{Cursor, DEFAULT_PAGE_SIZE, Page, ThoughtStore};
 pub use thought::{EditEntry, Thought};
