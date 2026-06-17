@@ -1,0 +1,78 @@
+@import "tailwindcss";
+
+/* DG-001 (U.S. Graphics school) — dark "terminal" discipline, matching the rest
+ * of the suite (harbor, lighthouse). Monospace-forward, hairline rules, flat
+ * fills, sharp corners, a single amber signal accent, a flat functional status
+ * ramp. Tokens exposed to Tailwind v4 as utilities (bg-surface, text-ink,
+ * border-rule, text-accent, …). No gradients, no glow, no soft shadows. */
+@theme {
+  --font-mono:
+    "Berkeley Mono", "JetBrains Mono", "IBM Plex Mono", ui-monospace,
+    SFMono-Regular, Menlo, Consolas, monospace;
+
+  --color-bg: #0b0c0d;
+  --color-surface: #121315;
+  --color-surface-2: #16181a;
+  --color-ink: #e6e4dd;
+  --color-ink-muted: #9a978d;
+  --color-ink-faint: #6a675f;
+  --color-rule: #2a2b2d;
+  --color-rule-strong: #3a3c3e;
+
+  /* One signal accent — caution amber — means "act / attention", not decor. */
+  --color-accent: #f08c00;
+  /* Flat functional status ramp. */
+  --color-active: #37b24d;
+  --color-failed: #c92a2a;
+  --color-idle: #6a675f;
+  /* Search-highlight wash. */
+  --color-mark: #3a2c0a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.45;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Thin, quiet scrollbars. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-rule-strong) transparent;
+}
+
+/* Sharp corners everywhere — instrument, not toy. */
+input,
+textarea,
+button {
+  border-radius: 0;
+}
+
+/* Visible focus — a real outline, per the guide. */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -1px;
+}
+
+/* Search highlight inside a snippet — flat amber wash, no rounding. */
+mark {
+  background: var(--color-mark);
+  color: var(--color-ink);
+  padding: 0 1px;
+}

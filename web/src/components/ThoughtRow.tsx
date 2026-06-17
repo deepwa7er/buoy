@@ -1,0 +1,93 @@
+import type { Thought, ThoughtMatch } from "../types";
+import { relTime } from "../lib/format";
+import { Snippet } from "./Snippet";
+
+/** Per-row related-thoughts state: `undefined` = closed, `null` = loading. */
+export type RelatedState = ThoughtMatch[] | null | undefined;
+
+export function ThoughtRow({
+  thought,
+  editing,
+  related,
+  onEdit,
+  onDelete,
+  onToggleRelated,
+  onPick,
+}: {
+  thought: Thought;
+  editing: boolean;
+  related: RelatedState;
+  onEdit: (t: Thought) => void;
+  onDelete: (id: string) => void;
+  onToggleRelated: (t: Thought) => void;
+  onPick: (id: string) => void;
+}) {
+  const open = related !== undefined;
+  return (
+    <li
+      id={`t-${thought.id}`}
+      className={`border-b border-rule px-4 py-2.5 ${editing ? "bg-surface-2" : ""}`}
+    >
+      <div className="flex items-start gap-3">
+        {/* Live/settled: a flat amber square marks a still-mutable thought. */}
+        <span
+          className={`mt-1.5 size-2 shrink-0 ${thought.is_settled ? "bg-transparent" : "bg-accent"}`}
+          title={thought.is_settled ? "settled" : "live — edits overwrite until it settles"}
+        />
+        <button
+          type="button"
+          onClick={() => onEdit(thought)}
+          className="flex-1 whitespace-pre-wrap break-words text-left text-ink"
+          title="edit"
+        >
+          {thought.text}
+        </button>
+        <div className="flex shrink-0 items-center gap-3 pt-px text-[11px] uppercase tracking-wide text-ink-faint">
+          <time
+            dateTime={new Date(thought.created_at).toISOString()}
+            title={new Date(thought.created_at).toLocaleString()}
+            className="tabular-nums normal-case"
+          >
+            {relTime(thought.created_at)}
+          </time>
+          <button
+            type="button"
+            onClick={() => onToggleRelated(thought)}
+            className={`hover:text-accent ${open ? "text-accent" : ""}`}
+          >
+            rel
+          </button>
+          <button type="button" onClick={() => onEdit(thought)} className="hover:text-accent">
+            edit
+          </button>
+          <button type="button" onClick={() => onDelete(thought.id)} className="hover:text-failed">
+            del
+          </button>
+        </div>
+      </div>
+
+      {open && (
+        <ul className="mt-2 ml-5 border-l border-rule-strong pl-3">
+          {related === null && <li className="py-1 text-ink-faint">…</li>}
+          {related !== null && related.length === 0 && (
+            <li className="py-1 text-ink-faint uppercase tracking-wide text-[11px]">
+              nothing related
+            </li>
+          )}
+          {related?.map((m) => (
+            <li key={m.thought.id} className="py-1">
+              <button
+                type="button"
+                onClick={() => onPick(m.thought.id)}
+                className="text-left text-ink-muted hover:text-ink"
+                title={m.thought.text}
+              >
+                <Snippet snippet={m.snippet} ranges={m.ranges} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </li>
+  );
+}

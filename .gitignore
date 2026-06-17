@@ -31,6 +31,10 @@ generated/
 apple/BuoyCorePackage/Sources/BuoyCore/BuoyCore.swift
 apple/BuoyCorePackage/Artifacts/BuoyCore.xcframework/
 
+# Web frontend (deps + build output; the build is produced by deploy/CI)
+/web/node_modules/
+/web/dist/
+
 # Editor
 .idea/
 .vscode/

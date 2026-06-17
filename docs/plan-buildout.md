@@ -2,6 +2,30 @@
 
 This plan picks up after the [POC](./plan-poc.md) is complete and accepted. It builds the full app in phases.
 
+## Direction update (2026-06-16)
+
+The platform set and the server model changed, by decision:
+
+- **Web replaces the Linux native client.** The gtk4 app (`crates/linux`) is
+  removed. Desktop use (macOS, Fedora) is now via a **web app** served from the
+  VPS. The platforms that "move together" are now **iOS + web**; the macOS
+  SwiftUI shell remains.
+- **A server-authoritative web buoy is live**, not the E2E sync server below.
+  `crates/server` (`buoy-server`, axum) holds a **canonical server-side store**
+  (SQLite + the MiniLM embedder) and serves the React frontend in `web/`. It
+  runs on the `deepwa7er` tailnet (`:8092`), deployed via tugboat
+  (`deploy.toml`/`deploy/provision.sh`), enrolled in `lighthouse.target`. No
+  app-level auth — the tailnet is the security boundary, as with the other
+  services. The browser is a thin client; the core is reused unchanged.
+- **iOS keeps its own local store** and does **not** yet share notes with the
+  web app. Unifying them — the **E2E-encrypted op-log sync** in Phase 5 below,
+  or pointing iOS at the server — remains future work and is the open question
+  to resolve next. Phase 5's design is retained below as the reference for that.
+
+The "all platforms move together / no hacks" quality bar is unchanged.
+
+---
+
 ## Operating principles
 
 1. **All three platforms move together.** Each phase delivers on iOS, macOS, and Linux before the next phase begins. The Rust core work in a phase happens first, then the three UIs proceed in parallel.

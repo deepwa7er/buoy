@@ -1,0 +1,23 @@
+# buoy-server configuration.
+#
+# `bind` is the address the server listens on. On the VPS set it to the
+# Tailscale IP (a 100.x.x.x address) so buoy is reachable ONLY from the tailnet —
+# nothing is exposed publicly, the same model lighthouse/harbor use.
+# `deploy/provision.sh` fills this in from `tailscale ip -4` on first provision,
+# replacing the placeholder below. For local development, set it to 127.0.0.1.
+bind = "100.64.0.1"
+port = 8092
+
+# Directory holding the built web frontend (index.html + assets), served at `/`.
+# deploy.toml ships the Vite build here.
+static_dir = "/opt/buoy/web"
+
+# SQLite database file. This is the canonical store for the web app. Its parent
+# directory must be writable by the service user (provision.sh creates it).
+db_path = "/var/lib/buoy/buoy.sqlite"
+
+# Directory of the all-MiniLM-L6-v2 embedding model, enabling semantic search.
+# provision.sh downloads it here. If the directory is absent, the server runs
+# with keyword-only search (the core degrades gracefully) — semantic search and
+# composition-time suggestions simply return nothing until the model is present.
+model_dir = "/opt/buoy/models/all-MiniLM-L6-v2"

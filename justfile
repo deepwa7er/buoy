@@ -9,8 +9,8 @@
 # Apple targets compiled into the iOS/macOS app bundles.
 apple_targets := "aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios aarch64-apple-darwin x86_64-apple-darwin"
 
-# Linux target used as a compile-time guard rail on macOS hosts.
-# The actual Linux GTK app is built natively on Linux (POC-6 onward).
+# Linux target: the deploy target for buoy-server (and a compile-time guard
+# rail for buoy-core on macOS hosts).
 linux_targets := "x86_64-unknown-linux-musl"
 
 # Target used to source UniFFI metadata for bindgen. Any Apple target works
@@ -89,15 +89,20 @@ build-linux:
         cargo build --lib -p buoy-core --release --target "$t"
     done
 
-# Build the Linux GTK app natively (requires GTK4 + pkg-config in PATH).
-# On macOS hosts this requires `brew install gtk4`. On Linux, install the
-# distro's GTK4 development packages.
-build-linux-app:
-    cargo build -p buoy-linux --release
+# Build the web frontend (bun → web/dist). Same build deploy.toml runs.
+build-web:
+    cd web && bun install && bun run build
 
-# Run the Linux GTK app natively on the host.
-run-linux:
-    cargo run -p buoy-linux
+# Cross-compile buoy-server for the VPS (static musl release). Same build
+# deploy.toml runs for the backend.
+build-server:
+    cargo build -p buoy-server --release --target x86_64-unknown-linux-musl
+
+# Run the web app locally: the Vite dev server (proxies /api to :8092) plus the
+# backend. Start the backend in another shell with:
+#   cargo run -p buoy-server -- --config <your-local-config.toml>
+dev-web:
+    cd web && bun run dev
 
 # Generate Swift bindings via the workspace-local uniffi-bindgen.
 # Depends on having a built apple-ffi static lib for `bindgen_target`.

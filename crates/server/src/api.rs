@@ -1,0 +1,323 @@
+//! HTTP API: JSON DTOs over the buoy core's `ThoughtStore`, mirroring the
+//! operations the native clients get through the `UniFFI` layer.
+//!
+//! The core's `ThoughtStore` is synchronous and `!Sync` (it owns a rusqlite
+//! `Connection`), so it lives behind an `Arc<Mutex<…>>` and every handler runs
+//! its store call on a blocking thread (`spawn_blocking`) to keep the async
+//! runtime free. DTOs are defined here so the core stays UI-agnostic.
+
+use std::sync::{Arc, Mutex, PoisonError};
+
+use axum::Json;
+use axum::extract::{Path, Query, State};
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
+use buoy_core::{Cursor, EditEntry, MatchRange, Page, Thought, ThoughtMatch, ThoughtStore};
+
+/// Shared handle to the canonical store.
+pub type Shared = Arc<Mutex<ThoughtStore>>;
+
+/// Default number of search results / suggestions when the client doesn't ask.
+const DEFAULT_SEARCH_LIMIT: usize = 50;
+const DEFAULT_DRAFT_SUGGESTIONS: usize = 3;
+const DEFAULT_RELATED: usize = 5;
+
+// ── DTOs ────────────────────────────────────────────────────────────────────
+
+#[derive(Serialize)]
+pub struct ThoughtDto {
+    pub id: String,
+    pub text: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub is_settled: bool,
+}
+
+impl From<&Thought> for ThoughtDto {
+    fn from(t: &Thought) -> Self {
+        Self {
+            id: t.id.to_string(),
+            text: t.text.clone(),
+            created_at: t.created_at,
+            updated_at: t.updated_at,
+            is_settled: t.is_settled,
+        }
+    }
+}
+
+#[derive(Serialize)]
+pub struct MatchRangeDto {
+    pub start: usize,
+    pub len: usize,
+}
+
+impl From<&MatchRange> for MatchRangeDto {
+    fn from(r: &MatchRange) -> Self {
+        Self {
+            start: r.start,
+            len: r.len,
+        }
+    }
+}
+
+#[derive(Serialize)]
+pub struct ThoughtMatchDto {
+    pub thought: ThoughtDto,
+    pub snippet: String,
+    pub ranges: Vec<MatchRangeDto>,
+}
+
+impl From<&ThoughtMatch> for ThoughtMatchDto {
+    fn from(m: &ThoughtMatch) -> Self {
+        Self {
+            thought: ThoughtDto::from(&m.thought),
+            snippet: m.snippet.clone(),
+            ranges: m.ranges.iter().map(MatchRangeDto::from).collect(),
+        }
+    }
+}
+
+#[derive(Serialize)]
+pub struct PageDto {
+    pub thoughts: Vec<ThoughtDto>,
+    /// Opaque cursor for the next page, or null when the stream is exhausted.
+    pub next_cursor: Option<String>,
+}
+
+impl From<Page> for PageDto {
+    fn from(p: Page) -> Self {
+        Self {
+            thoughts: p.thoughts.iter().map(ThoughtDto::from).collect(),
+            next_cursor: p.next_cursor.map(encode_cursor),
+        }
+    }
+}
+
+#[derive(Serialize)]
+pub struct EditEntryDto {
+    pub text: String,
+    pub archived_at: i64,
+}
+
+impl From<&EditEntry> for EditEntryDto {
+    fn from(e: &EditEntry) -> Self {
+        Self {
+            text: e.text.clone(),
+            archived_at: e.archived_at,
+        }
+    }
+}
+
+fn matches_dto(matches: &[ThoughtMatch]) -> Vec<ThoughtMatchDto> {
+    matches.iter().map(ThoughtMatchDto::from).collect()
+}
+
+// ── cursor codec ─────────────────────────────────────────────────────────────
+
+/// Encode a keyset cursor as `"<created_at>_<uuid>"`. The uuid's hyphens never
+/// collide with the single `_` separator, so decoding is a simple split.
+fn encode_cursor(c: Cursor) -> String {
+    format!("{}_{}", c.created_at, c.id)
+}
+
+fn decode_cursor(s: &str) -> Result<Cursor, AppError> {
+    let (created, id) = s
+        .split_once('_')
+        .ok_or_else(|| AppError::bad_request("malformed cursor"))?;
+    let created_at = created
+        .parse::<i64>()
+        .map_err(|_| AppError::bad_request("malformed cursor timestamp"))?;
+    let id = id
+        .parse::<Uuid>()
+        .map_err(|_| AppError::bad_request("malformed cursor id"))?;
+    Ok(Cursor { created_at, id })
+}
+
+fn parse_id(raw: &str) -> Result<Uuid, AppError> {
+    raw.parse::<Uuid>()
+        .map_err(|_| AppError::bad_request("invalid thought id"))
+}
+
+// ── handlers ─────────────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct ListQuery {
+    pub before: Option<String>,
+    pub limit: Option<usize>,
+}
+
+/// `GET /api/thoughts?before=<cursor>&limit=` — newest-first keyset page.
+pub async fn list_thoughts(
+    State(store): State<Shared>,
+    Query(q): Query<ListQuery>,
+) -> Result<Json<PageDto>, AppError> {
+    let before = q.before.as_deref().map(decode_cursor).transpose()?;
+    let limit = q.limit.unwrap_or(buoy_core::DEFAULT_PAGE_SIZE);
+    let page = blocking(store, move |s| s.list_paginated(before, limit)).await?;
+    Ok(Json(PageDto::from(page)))
+}
+
+#[derive(Deserialize)]
+pub struct TextBody {
+    pub text: String,
+}
+
+/// `POST /api/thoughts` — capture a new thought.
+pub async fn create_thought(
+    State(store): State<Shared>,
+    Json(body): Json<TextBody>,
+) -> Result<(StatusCode, Json<ThoughtDto>), AppError> {
+    let thought = blocking(store, move |s| s.create(&body.text)).await?;
+    Ok((StatusCode::CREATED, Json(ThoughtDto::from(&thought))))
+}
+
+/// `PUT /api/thoughts/{id}` — replace a thought's text.
+pub async fn update_thought(
+    State(store): State<Shared>,
+    Path(id): Path<String>,
+    Json(body): Json<TextBody>,
+) -> Result<Json<ThoughtDto>, AppError> {
+    let id = parse_id(&id)?;
+    let thought = blocking(store, move |s| s.update_thought(id, &body.text)).await?;
+    Ok(Json(ThoughtDto::from(&thought)))
+}
+
+/// `DELETE /api/thoughts/{id}` — delete a thought and its edit history.
+pub async fn delete_thought(
+    State(store): State<Shared>,
+    Path(id): Path<String>,
+) -> Result<StatusCode, AppError> {
+    let id = parse_id(&id)?;
+    blocking(store, move |s| s.delete_thought(id)).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize)]
+pub struct SearchQuery {
+    pub q: String,
+    pub limit: Option<usize>,
+}
+
+/// `GET /api/search?q=&limit=` — combined keyword + semantic search.
+pub async fn search(
+    State(store): State<Shared>,
+    Query(q): Query<SearchQuery>,
+) -> Result<Json<Vec<ThoughtMatchDto>>, AppError> {
+    let limit = q.limit.unwrap_or(DEFAULT_SEARCH_LIMIT);
+    let query = q.q;
+    let matches = blocking(store, move |s| s.search_combined(&query, limit)).await?;
+    Ok(Json(matches_dto(&matches)))
+}
+
+#[derive(Deserialize)]
+pub struct RelatedDraft {
+    pub draft: String,
+    pub exclude: Option<String>,
+    pub top_k: Option<usize>,
+}
+
+/// `POST /api/related` — related thoughts for an in-progress draft (the
+/// composition-time suggestion strip). Empty for a blank draft or no embedder.
+pub async fn related_to_draft(
+    State(store): State<Shared>,
+    Json(body): Json<RelatedDraft>,
+) -> Result<Json<Vec<ThoughtMatchDto>>, AppError> {
+    let exclude = body.exclude.as_deref().map(parse_id).transpose()?;
+    let top_k = body.top_k.unwrap_or(DEFAULT_DRAFT_SUGGESTIONS);
+    let draft = body.draft;
+    let matches = blocking(store, move |s| s.find_related(&draft, top_k, exclude)).await?;
+    Ok(Json(matches_dto(&matches)))
+}
+
+#[derive(Deserialize)]
+pub struct TopKQuery {
+    pub top_k: Option<usize>,
+}
+
+/// `GET /api/thoughts/{id}/related?top_k=` — related to an existing thought.
+pub async fn related_to_thought(
+    State(store): State<Shared>,
+    Path(id): Path<String>,
+    Query(q): Query<TopKQuery>,
+) -> Result<Json<Vec<ThoughtMatchDto>>, AppError> {
+    let id = parse_id(&id)?;
+    let top_k = q.top_k.unwrap_or(DEFAULT_RELATED);
+    let matches = blocking(store, move |s| s.find_related_to(id, top_k)).await?;
+    Ok(Json(matches_dto(&matches)))
+}
+
+/// `GET /api/thoughts/{id}/history` — prior versions, oldest first.
+pub async fn history(
+    State(store): State<Shared>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<EditEntryDto>>, AppError> {
+    let id = parse_id(&id)?;
+    let entries = blocking(store, move |s| s.edit_history(id)).await?;
+    Ok(Json(entries.iter().map(EditEntryDto::from).collect()))
+}
+
+/// `GET /healthz` — liveness probe.
+pub async fn healthz() -> &'static str {
+    "ok"
+}
+
+// ── plumbing ─────────────────────────────────────────────────────────────────
+
+/// Run a synchronous store operation on a blocking thread, holding the store
+/// lock only for the duration of the call. Recovers a poisoned lock rather than
+/// propagating the panic — a poisoned mutex shouldn't take the whole server down.
+async fn blocking<T, F>(store: Shared, f: F) -> Result<T, AppError>
+where
+    T: Send + 'static,
+    F: FnOnce(&ThoughtStore) -> buoy_core::Result<T> + Send + 'static,
+{
+    tokio::task::spawn_blocking(move || {
+        let guard = store.lock().unwrap_or_else(PoisonError::into_inner);
+        f(&guard)
+    })
+    .await
+    .map_err(|e| AppError::internal(&format!("store task failed: {e}")))?
+    .map_err(AppError::from)
+}
+
+/// API error with an HTTP status and a JSON `{ "error": … }` body.
+pub enum AppError {
+    NotFound(String),
+    BadRequest(String),
+    Internal(String),
+}
+
+impl AppError {
+    fn bad_request(msg: &str) -> Self {
+        Self::BadRequest(msg.to_owned())
+    }
+    fn internal(msg: &str) -> Self {
+        Self::Internal(msg.to_owned())
+    }
+}
+
+impl From<buoy_core::Error> for AppError {
+    fn from(e: buoy_core::Error) -> Self {
+        match e {
+            buoy_core::Error::NotFound { .. } => Self::NotFound(e.to_string()),
+            other => Self::Internal(other.to_string()),
+        }
+    }
+}
+
+impl IntoResponse for AppError {
+    fn into_response(self) -> Response {
+        let (status, message) = match self {
+            Self::NotFound(m) => (StatusCode::NOT_FOUND, m),
+            Self::BadRequest(m) => (StatusCode::BAD_REQUEST, m),
+            Self::Internal(m) => {
+                tracing::warn!(error = %m, "request failed");
+                (StatusCode::INTERNAL_SERVER_ERROR, m)
+            }
+        };
+        (status, Json(serde_json::json!({ "error": message }))).into_response()
+    }
+}
