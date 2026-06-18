@@ -107,4 +107,98 @@ enum SyncService {
 
         return (result.cursor ?? cursor, applied)
     }
+
+    /// Key under which the opaque server cursor is persisted between launches.
+    static let cursorKey = "buoy.sync.cursor"
+
+    /// Reconcile using the persisted cursor, advancing it only on success. The
+    /// single entry point for both the UI model and background sync, so cursor
+    /// handling lives in exactly one place. Returns how many remote changes were
+    /// applied (so a caller can decide whether to refresh its view).
+    static func reconcilePersisting(store: ThoughtStore, baseURL: URL) async throws -> Int {
+        let cursor = UserDefaults.standard.string(forKey: cursorKey)
+        let result = try await reconcile(store: store, baseURL: baseURL, since: cursor)
+        UserDefaults.standard.set(result.cursor, forKey: cursorKey)
+        return result.applied
+    }
 }
+
+// MARK: - Sync status (UI)
+
+/// Live state of the sync subsystem, surfaced in the UI. The time of the last
+/// *successful* reconcile is tracked separately (it persists across later
+/// failures), so this enum models only the current condition.
+enum SyncStatus: Equatable {
+    case idle
+    case syncing
+    /// The last attempt failed because the server was unreachable. An expected,
+    /// transient condition — shown plainly, not as an error.
+    case offline
+    /// The last attempt failed for some other reason; carries a message.
+    case failed(String)
+
+    var isOffline: Bool { self == .offline }
+}
+
+// MARK: - Store location
+
+/// On-device SQLite store location, shared by the UI and background sync so both
+/// open the exact same file. Creates the containing directory if missing.
+enum BuoyStore {
+    static func url() throws -> URL {
+        let fileManager = FileManager.default
+        let support = try fileManager.url(
+            for: .applicationSupportDirectory, in: .userDomainMask,
+            appropriateFor: nil, create: true)
+        let dir = support.appendingPathComponent("Buoy", isDirectory: true)
+        try fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("buoy.sqlite")
+    }
+}
+
+#if os(iOS)
+import BackgroundTasks
+
+// MARK: - Background sync (iOS)
+
+/// Periodic background reconcile via BGTaskScheduler. The
+/// `.backgroundTask(.appRefresh:)` modifier in `BuoyApp` registers the handler
+/// that calls `run()`; the app submits the first request when it backgrounds,
+/// and each run chains the next — so the cadence is self-sustaining without an
+/// AppDelegate. The OS throttles actual timing by usage and power.
+enum BackgroundSync {
+    /// Must match the value in BGTaskSchedulerPermittedIdentifiers (Info.plist).
+    static let taskIdentifier = "com.deepwa7er.Buoy.refresh"
+
+    /// Floor for when the system may next run the refresh — not a guarantee.
+    private static let earliestInterval: TimeInterval = 15 * 60
+
+    /// Ask the system to run a refresh later. Best-effort: submission can fail
+    /// (too many pending requests, capability unavailable in Low Power Mode);
+    /// the next foreground or pull-to-refresh sync covers any gap, so a failure
+    /// here is logged, not surfaced.
+    static func schedule() {
+        let request = BGAppRefreshTaskRequest(identifier: taskIdentifier)
+        request.earliestBeginDate = Date(timeIntervalSinceNow: earliestInterval)
+        do {
+            try BGTaskScheduler.shared.submit(request)
+        } catch {
+            print("buoy: could not schedule background sync: \(error)")
+        }
+    }
+
+    /// Run one reconcile from a background launch. Opens its own store handle
+    /// (the UI may not be alive) and chains the next request *first*, so an error
+    /// mid-reconcile never breaks the recurring chain. Errors are swallowed — a
+    /// failed background sync just means the next sync reconciles instead.
+    static func run() async {
+        schedule()
+        do {
+            let store = try ThoughtStore.open(path: BuoyStore.url().path)
+            _ = try await SyncService.reconcilePersisting(store: store, baseURL: buoyServerURL)
+        } catch {
+            print("buoy: background sync failed: \(error)")
+        }
+    }
+}
+#endif

@@ -13,5 +13,13 @@ struct BuoyApp: App {
         WindowGroup {
             ContentView()
         }
+        // Registers the background-refresh handler (the modern replacement for
+        // BGTaskScheduler.register in an AppDelegate). iOS only — macOS keeps
+        // its store warm while running and syncs on foreground / capture / pull.
+        #if os(iOS)
+        .backgroundTask(.appRefresh(BackgroundSync.taskIdentifier)) {
+            await BackgroundSync.run()
+        }
+        #endif
     }
 }

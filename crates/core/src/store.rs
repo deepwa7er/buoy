@@ -762,7 +762,15 @@ impl ThoughtStore {
     fn configure(&self) -> Result<()> {
         // Foreign-key enforcement is off by default in SQLite; we need it
         // on for the edit_history -> thoughts CASCADE delete.
-        self.conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+        //
+        // busy_timeout: the same store file is opened by more than one
+        // connection — the foreground UI and, on iOS, a periodic background-sync
+        // task. Without a timeout, a connection that finds the file momentarily
+        // write-locked by the other fails instantly with SQLITE_BUSY. Five
+        // seconds lets it wait out the (sub-millisecond, infrequent) lock
+        // instead. Harmless for the single-connection in-memory store.
+        self.conn
+            .execute_batch("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;")?;
         Ok(())
     }
 

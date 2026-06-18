@@ -23,15 +23,13 @@ final class ThoughtListModel {
     /// Related thoughts expanded under stream rows, keyed by thought id.
     var relatedExpanded: [String: [ThoughtMatch]] = [:]
 
-    /// Sync status, surfaced in the UI. `syncing` is true during a reconcile.
-    var syncing = false
+    /// Live sync state, surfaced in the UI. `lastSynced` is the time of the last
+    /// *successful* reconcile and persists across later failures.
+    var status: SyncStatus = .idle
     var lastSynced: Date?
-    var syncError: String?
 
     private var store: ThoughtStore?
     private var syncTask: Task<Void, Never>?
-    /// Opaque server change-feed cursor, persisted across launches.
-    private static let cursorKey = "buoy.sync.cursor"
     /// Cursor for the page after the oldest loaded thought; nil when the
     /// entire stream is loaded.
     private var nextCursor: Cursor?
@@ -50,7 +48,7 @@ final class ThoughtListModel {
 
     func open() async {
         do {
-            let path = try Self.storeURL().path
+            let path = try BuoyStore.url().path
             store = try ThoughtStore.open(path: path)
             await refresh()
             attachEmbedderInBackground()
@@ -60,33 +58,61 @@ final class ThoughtListModel {
         }
     }
 
+    /// Fire-and-forget reconcile, for triggers that don't need to wait (open,
+    /// capture, foreground).
+    func syncNow() {
+        Task { await sync() }
+    }
+
     /// Reconcile with the server: push local changes, pull remote ones. Runs the
     /// store + network work off the main actor and refreshes the stream if any
     /// remote changes landed. A failure (offline, server down) is recorded and
-    /// retried on the next trigger — captures never depend on it. Coalesces:
-    /// a sync already in flight isn't restarted.
-    func syncNow() {
-        guard let store, syncTask == nil else { return }
-        syncing = true
-        syncError = nil
-        let cursor = UserDefaults.standard.string(forKey: Self.cursorKey)
-        syncTask = Task { [weak self] in
+    /// retried on the next trigger — captures never depend on it.
+    ///
+    /// Awaits completion, and coalesces onto an in-flight reconcile if one is
+    /// already running — so callers that must wait (pull-to-refresh) block until
+    /// the work actually finishes rather than returning instantly.
+    func sync() async {
+        if let inFlight = syncTask {
+            await inFlight.value
+            return
+        }
+        guard let store else { return }
+        status = .syncing
+        let task = Task { [weak self] in
             let outcome = await Task.detached(priority: .utility) {
-                try await SyncService.reconcile(store: store, baseURL: buoyServerURL, since: cursor)
+                try await SyncService.reconcilePersisting(store: store, baseURL: buoyServerURL)
             }.result
             guard let self else { return }
             switch outcome {
-            case let .success(result):
-                UserDefaults.standard.set(result.cursor, forKey: Self.cursorKey)
+            case let .success(applied):
                 self.lastSynced = Date()
-                self.syncError = nil
-                if result.applied > 0 { await self.refresh() }
+                self.status = .idle
+                if applied > 0 { await self.refresh() }
             case let .failure(error):
-                self.syncError = String(describing: error)
+                self.status = Self.classify(error)
             }
-            self.syncing = false
             self.syncTask = nil
         }
+        syncTask = task
+        await task.value
+    }
+
+    /// Map a reconcile failure to a status: connectivity errors become
+    /// `.offline` (an expected, transient condition shown without alarm),
+    /// anything else `.failed` with a message.
+    private static func classify(_ error: Error) -> SyncStatus {
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .notConnectedToInternet, .cannotConnectToHost, .cannotFindHost,
+                 .dnsLookupFailed, .timedOut, .networkConnectionLost,
+                 .resourceUnavailable:
+                return .offline
+            default:
+                return .failed(urlError.localizedDescription)
+            }
+        }
+        return .failed(String(describing: error))
     }
 
     /// Load the bundled embedding model and attach it off the main actor
@@ -280,18 +306,6 @@ final class ThoughtListModel {
         }
     }
 
-    private static func storeURL() throws -> URL {
-        let fileManager = FileManager.default
-        let support = try fileManager.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        )
-        let dir = support.appendingPathComponent("Buoy", isDirectory: true)
-        try fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appendingPathComponent("buoy.sqlite")
-    }
 }
 
 struct ContentView: View {
@@ -310,6 +324,9 @@ struct ContentView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
+                if model.status.isOffline {
+                    OfflineBanner()
+                }
                 if searchText.isEmpty {
                     stream
                     Divider()
@@ -359,6 +376,11 @@ struct ContentView: View {
             switch newPhase {
             case .background, .inactive:
                 Task { await model.settleAllLive() }
+                #if os(iOS)
+                // Only on a true background transition — `.inactive` fires
+                // transiently (app switcher, banners) and shouldn't reschedule.
+                if newPhase == .background { BackgroundSync.schedule() }
+                #endif
             case .active:
                 // Refresh so any thoughts that crossed the settle window
                 // (or were force-settled on the way out) show up correctly,
@@ -430,6 +452,7 @@ struct ContentView: View {
             }
             .listStyle(.plain)
             .defaultScrollAnchor(.bottom)
+            .refreshable { await model.sync() }
             .onChange(of: scrollTarget) { _, target in
                 guard let target else { return }
                 withAnimation {
@@ -532,27 +555,53 @@ private struct SyncStatusButton: View {
 
     var body: some View {
         Button { model.syncNow() } label: {
-            if model.syncing {
+            switch model.status {
+            case .syncing:
                 ProgressView().controlSize(.small)
-            } else if model.syncError != nil {
-                Image(systemName: "exclamationmark.icloud")
-                    .foregroundStyle(.secondary)
-            } else {
-                Image(systemName: "checkmark.icloud")
-                    .foregroundStyle(.secondary)
+            case .offline:
+                Image(systemName: "wifi.slash").foregroundStyle(.secondary)
+            case .failed:
+                Image(systemName: "exclamationmark.icloud").foregroundStyle(.secondary)
+            case .idle:
+                Image(systemName: "checkmark.icloud").foregroundStyle(.secondary)
             }
         }
         .help(helpText)
-        .disabled(model.syncing)
+        .disabled(model.status == .syncing)
     }
 
     private var helpText: String {
-        if model.syncing { return "Syncing…" }
-        if let error = model.syncError { return "Sync failed: \(error)" }
-        if let synced = model.lastSynced {
-            return "Last synced \(synced.formatted(date: .omitted, time: .shortened))"
+        switch model.status {
+        case .syncing:
+            return "Syncing…"
+        case .offline:
+            return "Offline — will sync when the server is reachable"
+        case let .failed(message):
+            return "Sync failed: \(message)"
+        case .idle:
+            if let synced = model.lastSynced {
+                return "Last synced \(synced.formatted(date: .omitted, time: .shortened))"
+            }
+            return "Sync"
         }
-        return "Sync"
+    }
+}
+
+/// Slim, passive banner shown while the server is unreachable. Capture works
+/// fully offline; this only tells the user their changes haven't synced yet.
+private struct OfflineBanner: View {
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "wifi.slash")
+                .imageScale(.small)
+            Text("Offline — changes will sync when the server is reachable")
+                .font(.caption)
+            Spacer()
+        }
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(.quaternary)
     }
 }
 

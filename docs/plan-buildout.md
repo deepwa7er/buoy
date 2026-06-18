@@ -224,8 +224,29 @@ that pushes the local outbox and applies the server's changes, triggered on app
 open, on `scenePhase` active/background, and after each capture; a toolbar sync
 status indicator. The store + network run off the main actor. App config: an
 outgoing-network entitlement (`Buoy.entitlements`) and a tailnet ATS exception
-(`Info.plist`). Still TODO from the list below: `BGTaskScheduler` periodic
-background sync, pull-to-refresh, an explicit offline banner.
+(`Info.plist`).
+
+The remaining list items are now done:
+- **Periodic background sync (iOS)** — a `BGAppRefreshTask` registered via the
+  SwiftUI `.backgroundTask(.appRefresh:)` scene modifier (no AppDelegate). The
+  identifier (`com.deepwa7er.Buoy.refresh`) and the `fetch` background mode are
+  declared in `Info.plist`; the app submits the next request on backgrounding and
+  each run re-chains. The handler (`BackgroundSync.run`) opens its own store and
+  reconciles, independent of the UI. macOS keeps syncing on foreground/capture.
+- **Pull-to-refresh** — `.refreshable` on the stream awaits a reconcile. The sync
+  path was refactored to an awaitable `sync()` (with `syncNow()` as the
+  fire-and-forget wrapper) that coalesces onto an in-flight reconcile, so the
+  spinner reflects real completion.
+- **Offline banner** — failures are classified (`SyncStatus`): connectivity
+  errors become `.offline`, shown as a slim passive banner + a `wifi.slash`
+  toolbar glyph; other failures stay `.failed`. Capture is unaffected.
+
+Cursor handling was consolidated into one `SyncService.reconcilePersisting`
+entry point used by both the UI and background sync. Because background sync
+opens a **second** connection to the store file, the core now sets
+`PRAGMA busy_timeout = 5000` (`crates/core/src/store.rs`) so a momentary
+write-lock between the two connections waits rather than failing with
+`SQLITE_BUSY`.
 
 ### Platform UI work
 - **iOS** — `BGTaskScheduler` for periodic sync, sync-on-foreground, sync-on-send (push immediately)

@@ -21,5 +21,21 @@
 			</dict>
 		</dict>
 	</dict>
+
+	<!--
+	  Background sync. iOS reconciles with the buoy server from a periodic
+	  BGAppRefreshTask; its identifier must be declared here for the scheduler
+	  to accept the request, and "fetch" enables the background-refresh
+	  capability. Both keys are ignored on macOS, which syncs on foreground,
+	  on capture, and via pull-to-refresh / the toolbar button.
+	-->
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.deepwa7er.Buoy.refresh</string>
+	</array>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>fetch</string>
+	</array>
 </dict>
 </plist>
