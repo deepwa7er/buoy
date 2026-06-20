@@ -4,8 +4,7 @@
 #   - the `buoy` service user (least privilege)
 #   - the directory layout: /opt/buoy/web (assets), /opt/buoy/models (model),
 #     /var/lib/buoy (the SQLite store), /etc/buoy (config)
-#   - the config (installed only if absent; bind address auto-filled to the
-#     Tailscale IP while still the baseline placeholder)
+#   - the config (installed only if absent; binds loopback, fronted by breakwater)
 #   - the all-MiniLM-L6-v2 embedding model (downloaded once; enables semantic
 #     search — without it the server runs keyword-only)
 #   - the systemd unit
@@ -41,13 +40,7 @@ fi
 mkdir -p /opt/buoy/web /opt/buoy/models /var/lib/buoy /etc/buoy
 [ -f /etc/buoy/config.toml ] || install -m644 "$P/buoy.toml" /etc/buoy/config.toml
 
-# Auto-fill the bind address only while it is still the baseline placeholder.
-TSIP="$(tailscale ip -4 2>/dev/null | head -1 || true)"
-if [ -n "$TSIP" ] && grep -q '^bind = "100.64.0.1"' /etc/buoy/config.toml; then
-  sed -i "s|^bind = .*|bind = \"$TSIP\"|" /etc/buoy/config.toml
-  echo ">> Bound buoy to Tailscale IP $TSIP"
-fi
-
+# bind is loopback (see config.toml); breakwater is the tailnet front door.
 # The store directory must be writable by the service user.
 chown -R buoy:buoy /var/lib/buoy /etc/buoy
 

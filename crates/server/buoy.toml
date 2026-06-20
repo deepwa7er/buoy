@@ -1,11 +1,9 @@
 # buoy-server configuration.
 #
-# `bind` is the address the server listens on. On the VPS set it to the
-# Tailscale IP (a 100.x.x.x address) so buoy is reachable ONLY from the tailnet —
-# nothing is exposed publicly, the same model lighthouse/harbor use.
-# `deploy/provision.sh` fills this in from `tailscale ip -4` on first provision,
-# replacing the placeholder below. For local development, set it to 127.0.0.1.
-bind = "100.64.0.1"
+# `bind` is the address the server listens on. It binds loopback; the breakwater
+# reverse proxy is the tailnet front door and serves buoy at
+# https://buoy.internal.deepwa7er.com (nothing is exposed publicly).
+bind = "127.0.0.1"
 port = 8092
 
 # Directory holding the built web frontend (index.html + assets), served at `/`.
