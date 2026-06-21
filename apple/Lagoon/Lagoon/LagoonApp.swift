@@ -1,6 +1,6 @@
 //
-//  BuoyApp.swift
-//  Buoy
+//  LagoonApp.swift
+//  Lagoon
 //
 //  Created by Joe on 5/26/26.
 //
@@ -8,7 +8,7 @@
 import SwiftUI
 
 @main
-struct BuoyApp: App {
+struct LagoonApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()

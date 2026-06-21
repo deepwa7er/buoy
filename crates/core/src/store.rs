@@ -1274,7 +1274,7 @@ mod tests {
     #[test]
     fn create_then_list_returns_the_thought() {
         let store = ThoughtStore::open_in_memory().unwrap();
-        let thought = store.create("hello buoy").unwrap();
+        let thought = store.create("hello lagoon").unwrap();
         assert_eq!(store.list().unwrap(), vec![thought]);
     }
 
@@ -1315,7 +1315,7 @@ mod tests {
     #[test]
     fn thoughts_persist_across_reopen() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("buoy.sqlite");
+        let path = dir.path().join("lagoon.sqlite");
         let original = {
             let store = ThoughtStore::open(&path).unwrap();
             store.create("survives a restart").unwrap()
@@ -1327,7 +1327,7 @@ mod tests {
     #[test]
     fn migrate_is_idempotent_and_upgrades_v1_to_v2() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("buoy.sqlite");
+        let path = dir.path().join("lagoon.sqlite");
         {
             let _ = ThoughtStore::open(&path).unwrap();
         }
@@ -1342,7 +1342,7 @@ mod tests {
     #[test]
     fn upgrading_existing_v1_database_backfills_updated_at() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("buoy.sqlite");
+        let path = dir.path().join("lagoon.sqlite");
         {
             let conn = rusqlite::Connection::open(&path).unwrap();
             conn.execute_batch(
@@ -1665,17 +1665,17 @@ mod tests {
     fn search_snippet_ranges_cover_matched_terms() {
         let store = ThoughtStore::open_in_memory().unwrap();
         store
-            .create("a fairly long thought about the moment the harbor buoy light blinked twice before dawn")
+            .create("a fairly long thought about the moment the harbor lagoon light blinked twice before dawn")
             .unwrap();
 
-        let matches = store.search_text("buoy", 10).unwrap();
+        let matches = store.search_text("lagoon", 10).unwrap();
         assert_eq!(matches.len(), 1);
         let m = &matches[0];
         // The thought is longer than the snippet window, so it truncates.
         assert!(m.snippet.contains('…'));
         assert_eq!(m.ranges.len(), 1);
         let range = m.ranges[0];
-        assert_eq!(&m.snippet[range.start..range.start + range.len], "buoy");
+        assert_eq!(&m.snippet[range.start..range.start + range.len], "lagoon");
     }
 
     #[test]
@@ -1688,7 +1688,7 @@ mod tests {
     #[test]
     fn migrating_pre_fts_database_backfills_the_index() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("buoy.sqlite");
+        let path = dir.path().join("lagoon.sqlite");
         {
             let conn = rusqlite::Connection::open(&path).unwrap();
             conn.execute_batch(
@@ -2298,7 +2298,7 @@ mod tests {
     #[test]
     fn migration_backfills_tags_from_existing_text() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("buoy.sqlite");
+        let path = dir.path().join("lagoon.sqlite");
         {
             let store = ThoughtStore::open(&path).unwrap();
             store.create("legacy #backfilled note").unwrap();

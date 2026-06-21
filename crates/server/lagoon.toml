@@ -1,21 +1,21 @@
-# buoy-server configuration.
+# lagoon-server configuration.
 #
 # `bind` is the address the server listens on. It binds loopback; the breakwater
-# reverse proxy is the tailnet front door and serves buoy at
-# https://buoy.internal.deepwa7er.com (nothing is exposed publicly).
+# reverse proxy is the tailnet front door and serves lagoon at
+# https://lagoon.internal.deepwa7er.com (nothing is exposed publicly).
 bind = "127.0.0.1"
 port = 8092
 
 # Directory holding the built web frontend (index.html + assets), served at `/`.
 # deploy.toml ships the Vite build here.
-static_dir = "/opt/buoy/web"
+static_dir = "/opt/lagoon/web"
 
 # SQLite database file. This is the canonical store for the web app. Its parent
 # directory must be writable by the service user (provision.sh creates it).
-db_path = "/var/lib/buoy/buoy.sqlite"
+db_path = "/var/lib/lagoon/lagoon.sqlite"
 
 # Directory of the all-MiniLM-L6-v2 embedding model, enabling semantic search.
 # provision.sh downloads it here. If the directory is absent, the server runs
 # with keyword-only search (the core degrades gracefully) — semantic search and
 # composition-time suggestions simply return nothing until the model is present.
-model_dir = "/opt/buoy/models/all-MiniLM-L6-v2"
+model_dir = "/opt/lagoon/models/all-MiniLM-L6-v2"

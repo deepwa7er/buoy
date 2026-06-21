@@ -1,4 +1,4 @@
-# Buoy — Buildout Plan
+# Lagoon — Buildout Plan
 
 This plan picks up after the [POC](./plan-poc.md) is complete and accepted. It builds the full app in phases.
 
@@ -10,8 +10,8 @@ The platform set and the server model changed, by decision:
   removed. Desktop use (macOS, Fedora) is now via a **web app** served from the
   VPS. The platforms that "move together" are now **iOS + web**; the macOS
   SwiftUI shell remains.
-- **A server-authoritative web buoy is live**, not the E2E sync server below.
-  `crates/server` (`buoy-server`, axum) holds a **canonical server-side store**
+- **A server-authoritative web lagoon is live**, not the E2E sync server below.
+  `crates/server` (`lagoon-server`, axum) holds a **canonical server-side store**
   (SQLite + the MiniLM embedder) and serves the React frontend in `web/`. It
   runs on the `deepwa7er` tailnet (`:8092`), deployed via tugboat
   (`deploy.toml`/`deploy/provision.sh`), enrolled in `lighthouse.target`. No
@@ -170,7 +170,7 @@ web app made the server authoritative and able to read notes:
 - **Endpoint:** one `POST /api/sync` (`crates/server`) — push the client's
   changes (LWW), return the server's changes since the client's cursor.
 - **Clients:** the web app is a live view of the store (no sync needed). iOS/macOS
-  sync via `apple/Buoy/Buoy/Sync.swift` + the FFI sync methods (Phase 6).
+  sync via `apple/Lagoon/Lagoon/Sync.swift` + the FFI sync methods (Phase 6).
 
 The E2E op-log design below is **retained as reference** only — revisit it if
 multi-user or untrusted-server requirements ever appear.
@@ -219,17 +219,17 @@ multi-user or untrusted-server requirements ever appear.
 
 ### Realized (2026-06-16) — iOS/macOS
 
-Implemented in `apple/Buoy/Buoy/Sync.swift` + `ContentView.swift`: a `SyncService`
+Implemented in `apple/Lagoon/Lagoon/Sync.swift` + `ContentView.swift`: a `SyncService`
 that pushes the local outbox and applies the server's changes, triggered on app
 open, on `scenePhase` active/background, and after each capture; a toolbar sync
 status indicator. The store + network run off the main actor. App config: an
-outgoing-network entitlement (`Buoy.entitlements`) and a tailnet ATS exception
+outgoing-network entitlement (`Lagoon.entitlements`) and a tailnet ATS exception
 (`Info.plist`).
 
 The remaining list items are now done:
 - **Periodic background sync (iOS)** — a `BGAppRefreshTask` registered via the
   SwiftUI `.backgroundTask(.appRefresh:)` scene modifier (no AppDelegate). The
-  identifier (`com.deepwa7er.Buoy.refresh`) and the `fetch` background mode are
+  identifier (`com.deepwa7er.Lagoon.refresh`) and the `fetch` background mode are
   declared in `Info.plist`; the app submits the next request on backgrounding and
   each run re-chains. The handler (`BackgroundSync.run`) opens its own store and
   reconciles, independent of the UI. macOS keeps syncing on foreground/capture.
@@ -299,7 +299,7 @@ no dead code; 82 core tests green. The web flows were browser-verified end to
 end (9/9); the iOS UI was visually verified (full interaction-driving would need
 XCUITest). While here, fixed a regression the breakwater migration introduced —
 the Apple sync URL pointed at the now-dead `tailnet:8092` and now uses
-`https://buoy.internal.deepwa7er.com`.
+`https://lagoon.internal.deepwa7er.com`.
 
 ### Rust core work
 - `tags` table + `thought_tags` join

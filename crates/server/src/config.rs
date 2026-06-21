@@ -6,7 +6,7 @@ use serde::Deserialize;
 
 /// The repo's example config doubles as the baseline written on first run, so
 /// the documented defaults and the runtime baseline can never drift apart.
-const BASELINE_CONFIG: &str = include_str!("../buoy.toml");
+const BASELINE_CONFIG: &str = include_str!("../lagoon.toml");
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {

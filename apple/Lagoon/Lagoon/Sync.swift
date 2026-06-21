@@ -1,7 +1,7 @@
-import BuoyCore
+import LagoonCore
 import Foundation
 
-// Two-way sync against the server-authoritative buoy store on the tailnet.
+// Two-way sync against the server-authoritative lagoon store on the tailnet.
 //
 // The flow each tick: read the local outbox (`pendingChanges`), POST it to
 // `/api/sync` along with our cursor, apply the server's returned changes
@@ -9,11 +9,11 @@ import Foundation
 // new cursor. Capture works fully offline; a sync just reconciles when we can
 // reach the server. See crates/server/src/api.rs and crates/core/src/sync.rs.
 
-/// Where the buoy server lives — the breakwater HTTPS front door on the tailnet
-/// (a valid wildcard cert, so no ATS exception is needed). buoy binds loopback
+/// Where the lagoon server lives — the breakwater HTTPS front door on the tailnet
+/// (a valid wildcard cert, so no ATS exception is needed). lagoon binds loopback
 /// on the VPS; breakwater serves it at this name, the same `*.internal` scheme
 /// the web app and the rest of the suite use.
-let buoyServerURL = URL(string: "https://buoy.internal.deepwa7er.com")!
+let lagoonServerURL = URL(string: "https://lagoon.internal.deepwa7er.com")!
 
 /// How many local changes to push per sync. A personal store fits in one tick;
 /// if there are more, the next tick drains the rest.
@@ -112,7 +112,7 @@ enum SyncService {
     }
 
     /// Key under which the opaque server cursor is persisted between launches.
-    static let cursorKey = "buoy.sync.cursor"
+    static let cursorKey = "lagoon.sync.cursor"
 
     /// Reconcile using the persisted cursor, advancing it only on success. The
     /// single entry point for both the UI model and background sync, so cursor
@@ -147,15 +147,15 @@ enum SyncStatus: Equatable {
 
 /// On-device SQLite store location, shared by the UI and background sync so both
 /// open the exact same file. Creates the containing directory if missing.
-enum BuoyStore {
+enum LagoonStore {
     static func url() throws -> URL {
         let fileManager = FileManager.default
         let support = try fileManager.url(
             for: .applicationSupportDirectory, in: .userDomainMask,
             appropriateFor: nil, create: true)
-        let dir = support.appendingPathComponent("Buoy", isDirectory: true)
+        let dir = support.appendingPathComponent("Lagoon", isDirectory: true)
         try fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appendingPathComponent("buoy.sqlite")
+        return dir.appendingPathComponent("lagoon.sqlite")
     }
 }
 
@@ -165,13 +165,13 @@ import BackgroundTasks
 // MARK: - Background sync (iOS)
 
 /// Periodic background reconcile via BGTaskScheduler. The
-/// `.backgroundTask(.appRefresh:)` modifier in `BuoyApp` registers the handler
+/// `.backgroundTask(.appRefresh:)` modifier in `LagoonApp` registers the handler
 /// that calls `run()`; the app submits the first request when it backgrounds,
 /// and each run chains the next — so the cadence is self-sustaining without an
 /// AppDelegate. The OS throttles actual timing by usage and power.
 enum BackgroundSync {
     /// Must match the value in BGTaskSchedulerPermittedIdentifiers (Info.plist).
-    static let taskIdentifier = "com.deepwa7er.Buoy.refresh"
+    static let taskIdentifier = "com.deepwa7er.Lagoon.refresh"
 
     /// Floor for when the system may next run the refresh — not a guarantee.
     private static let earliestInterval: TimeInterval = 15 * 60
@@ -186,7 +186,7 @@ enum BackgroundSync {
         do {
             try BGTaskScheduler.shared.submit(request)
         } catch {
-            print("buoy: could not schedule background sync: \(error)")
+            print("lagoon: could not schedule background sync: \(error)")
         }
     }
 
@@ -197,10 +197,10 @@ enum BackgroundSync {
     static func run() async {
         schedule()
         do {
-            let store = try ThoughtStore.open(path: BuoyStore.url().path)
-            _ = try await SyncService.reconcilePersisting(store: store, baseURL: buoyServerURL)
+            let store = try ThoughtStore.open(path: LagoonStore.url().path)
+            _ = try await SyncService.reconcilePersisting(store: store, baseURL: lagoonServerURL)
         } catch {
-            print("buoy: background sync failed: \(error)")
+            print("lagoon: background sync failed: \(error)")
         }
     }
 }

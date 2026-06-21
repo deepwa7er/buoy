@@ -1,4 +1,4 @@
-// Smoke test for the macOS slice of BuoyCore.xcframework.
+// Smoke test for the macOS slice of LagoonCore.xcframework.
 //
 // Exercises the full FFI chain: Swift code calls UniFFI-generated bindings,
 // which call into the Rust core, which opens SQLite, persists a thought, and
@@ -11,7 +11,7 @@ import Foundation
 @main
 struct SmokeTest {
     static func main() throws {
-        let path = NSTemporaryDirectory() + "buoy-smoke-\(UUID().uuidString).sqlite"
+        let path = NSTemporaryDirectory() + "lagoon-smoke-\(UUID().uuidString).sqlite"
         defer { try? FileManager.default.removeItem(atPath: path) }
 
         let store = try ThoughtStore.open(path: path)

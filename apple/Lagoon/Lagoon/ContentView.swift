@@ -1,4 +1,4 @@
-import BuoyCore
+import LagoonCore
 import SwiftUI
 
 #if os(iOS)
@@ -11,27 +11,27 @@ import AppKit
 
 private extension Color {
     /// Single signal accent — caution orange, used sparingly for action/state.
-    static let buoyAccent = Color(red: 0.910, green: 0.349, blue: 0.047)
+    static let lagoonAccent = Color(red: 0.910, green: 0.349, blue: 0.047)
     #if os(iOS)
     /// Warm paper in light mode; near-black terminal in dark mode.
-    static let buoyPaper = Color(UIColor {
+    static let lagoonPaper = Color(UIColor {
         $0.userInterfaceStyle == .dark
             ? UIColor(red: 0.07, green: 0.07, blue: 0.06, alpha: 1)
             : UIColor(red: 0.957, green: 0.953, blue: 0.933, alpha: 1)
     })
     /// Hairline rule — structural separators and borders.
-    static let buoyRule = Color(UIColor {
+    static let lagoonRule = Color(UIColor {
         $0.userInterfaceStyle == .dark
             ? UIColor(red: 0.25, green: 0.24, blue: 0.23, alpha: 1)
             : UIColor(red: 0.824, green: 0.816, blue: 0.784, alpha: 1)
     })
     #else
-    static let buoyPaper = Color(NSColor(name: nil, dynamicProvider: { appearance in
+    static let lagoonPaper = Color(NSColor(name: nil, dynamicProvider: { appearance in
         appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
             ? NSColor(red: 0.07, green: 0.07, blue: 0.06, alpha: 1)
             : NSColor(red: 0.957, green: 0.953, blue: 0.933, alpha: 1)
     }))
-    static let buoyRule = Color(NSColor(name: nil, dynamicProvider: { appearance in
+    static let lagoonRule = Color(NSColor(name: nil, dynamicProvider: { appearance in
         appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
             ? NSColor(red: 0.25, green: 0.24, blue: 0.23, alpha: 1)
             : NSColor(red: 0.824, green: 0.816, blue: 0.784, alpha: 1)
@@ -88,7 +88,7 @@ final class ThoughtListModel {
 
     func open() async {
         do {
-            let path = try BuoyStore.url().path
+            let path = try LagoonStore.url().path
             store = try ThoughtStore.open(path: path)
             await refresh()
             await loadSavedSearches()
@@ -122,7 +122,7 @@ final class ThoughtListModel {
         status = .syncing
         let task = Task { [weak self] in
             let outcome = await Task.detached(priority: .utility) {
-                try await SyncService.reconcilePersisting(store: store, baseURL: buoyServerURL)
+                try await SyncService.reconcilePersisting(store: store, baseURL: lagoonServerURL)
             }.result
             guard let self else { return }
             switch outcome {
@@ -172,7 +172,7 @@ final class ThoughtListModel {
                 // are never blocked for long during the backfill.
                 while try store.embedMissing(limit: 8) > 0 {}
             } catch {
-                print("buoy: semantic search unavailable: \(error)")
+                print("lagoon: semantic search unavailable: \(error)")
             }
         }
     }
@@ -461,7 +461,7 @@ struct ContentView: View {
     @State private var pinName = ""
     @FocusState private var composerFocused: Bool
     @Environment(\.scenePhase) private var scenePhase
-    @AppStorage("buoy.hideActioned") private var hideActioned = false
+    @AppStorage("lagoon.hideActioned") private var hideActioned = false
     #if os(macOS)
     @State private var keyMonitor: Any?
     #endif
@@ -510,13 +510,13 @@ struct ContentView: View {
                     }
                 }
             }
-            .navigationTitle("BUOY")
+            .navigationTitle("LAGOON")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
-            .background(Color.buoyPaper)
+            .background(Color.lagoonPaper)
             #if os(iOS)
-            .toolbarBackground(Color.buoyPaper, for: .navigationBar)
+            .toolbarBackground(Color.lagoonPaper, for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
             #endif
             .searchable(text: $searchText, prompt: "Search thoughts")
@@ -609,8 +609,8 @@ struct ContentView: View {
         .environment(
             \.openURL,
             OpenURLAction { url in
-                guard url.scheme == "buoytag" else { return .systemAction }
-                let raw = String(url.absoluteString.dropFirst("buoytag:".count))
+                guard url.scheme == "lagoontag" else { return .systemAction }
+                let raw = String(url.absoluteString.dropFirst("lagoontag:".count))
                 searchText = "#\(raw.removingPercentEncoding ?? raw)"
                 return .handled
             }
@@ -659,13 +659,13 @@ struct ContentView: View {
                         // one scrolls into view, pull in the next page.
                         Task { await model.loadOlderIfNeeded(visibleId: thought.id) }
                     }
-                    .listRowBackground(Color.buoyPaper)
-                    .listRowSeparatorTint(Color.buoyRule)
+                    .listRowBackground(Color.lagoonPaper)
+                    .listRowSeparatorTint(Color.lagoonRule)
                 }
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
-            .background(Color.buoyPaper)
+            .background(Color.lagoonPaper)
             .defaultScrollAnchor(.bottom)
             .refreshable { await model.sync() }
             .onChange(of: scrollTarget) { _, target in
@@ -705,14 +705,14 @@ struct ContentView: View {
                 Text(model.isEditing ? "Update" : "Save")
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
-                    .background(isEmpty ? Color.buoyRule : Color.buoyAccent)
+                    .background(isEmpty ? Color.lagoonRule : Color.lagoonAccent)
                     .foregroundStyle(.white)
             }
             .buttonStyle(.plain)
             .disabled(isEmpty)
         }
         .padding(12)
-        .background(Color.buoyPaper)
+        .background(Color.lagoonPaper)
     }
 
     #if os(macOS)
@@ -822,12 +822,12 @@ private struct OfflineBanner: View {
                 .font(.caption)
             Spacer()
         }
-        .foregroundStyle(Color.buoyAccent)
+        .foregroundStyle(Color.lagoonAccent)
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
-        .background(Color.buoyPaper)
+        .background(Color.lagoonPaper)
         .overlay(alignment: .bottom) {
-            Rectangle().frame(height: 1).foregroundStyle(Color.buoyRule)
+            Rectangle().frame(height: 1).foregroundStyle(Color.lagoonRule)
         }
     }
 }
@@ -839,7 +839,7 @@ private struct EditingBanner: View {
         HStack(spacing: 6) {
             Image(systemName: "pencil")
                 .imageScale(.small)
-                .foregroundStyle(Color.buoyAccent)
+                .foregroundStyle(Color.lagoonAccent)
             Text("Editing thought")
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -847,19 +847,19 @@ private struct EditingBanner: View {
             Button("Cancel", action: onCancel)
                 .buttonStyle(.plain)
                 .font(.caption)
-                .foregroundStyle(Color.buoyAccent)
+                .foregroundStyle(Color.lagoonAccent)
         }
         .padding(.leading, 15)
         .padding(.trailing, 12)
         .padding(.vertical, 6)
         .background {
             HStack(spacing: 0) {
-                Color.buoyAccent.frame(width: 3)
-                Color.buoyPaper
+                Color.lagoonAccent.frame(width: 3)
+                Color.lagoonPaper
             }
         }
         .overlay(alignment: .bottom) {
-            Rectangle().frame(height: 1).foregroundStyle(Color.buoyRule)
+            Rectangle().frame(height: 1).foregroundStyle(Color.lagoonRule)
         }
     }
 }
@@ -876,12 +876,12 @@ private struct SearchResultsList: View {
                 SearchResultRow(match: match)
                     .contentShape(Rectangle())
                     .onTapGesture { onSelect(match) }
-                    .listRowBackground(Color.buoyPaper)
-                    .listRowSeparatorTint(Color.buoyRule)
+                    .listRowBackground(Color.lagoonPaper)
+                    .listRowSeparatorTint(Color.lagoonRule)
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
-            .background(Color.buoyPaper)
+            .background(Color.lagoonPaper)
         }
     }
 }
@@ -930,7 +930,7 @@ private struct SearchResultRow: View {
 private let tagRegex = /(?:^|[^\p{L}\p{N}_#])#(?<name>[\p{L}\p{N}_][\p{L}\p{N}_-]*)/
 
 /// Render thought text with its `#tag` tokens accent-colored and linked
-/// (`buoytag:<name>`); the link scheme is intercepted by an `OpenURLAction` in
+/// (`lagoontag:<name>`); the link scheme is intercepted by an `OpenURLAction` in
 /// `ContentView` to filter by the tag. Tapping anywhere else still edits the row.
 private func taggedText(_ text: String) -> AttributedString {
     var result = AttributedString()
@@ -944,7 +944,7 @@ private func taggedText(_ text: String) -> AttributedString {
         var chip = AttributedString(text[hashIdx..<match.output.name.endIndex])
         chip.foregroundColor = .accentColor
         if let encoded = name.addingPercentEncoding(withAllowedCharacters: .alphanumerics),
-            let url = URL(string: "buoytag:\(encoded)")
+            let url = URL(string: "lagoontag:\(encoded)")
         {
             chip.link = url
         }
@@ -973,8 +973,8 @@ private struct SavedSearchBar: View {
                         .font(.caption)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
-                        .background(Color.buoyPaper)
-                        .overlay(Rectangle().strokeBorder(Color.buoyRule, lineWidth: 1))
+                        .background(Color.lagoonPaper)
+                        .overlay(Rectangle().strokeBorder(Color.lagoonRule, lineWidth: 1))
                     }
                     .buttonStyle(.plain)
                     .contextMenu {
@@ -990,9 +990,9 @@ private struct SavedSearchBar: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
         }
-        .background(Color.buoyPaper)
+        .background(Color.lagoonPaper)
         .overlay(alignment: .bottom) {
-            Rectangle().frame(height: 1).foregroundStyle(Color.buoyRule)
+            Rectangle().frame(height: 1).foregroundStyle(Color.lagoonRule)
         }
     }
 }
@@ -1013,8 +1013,8 @@ private struct TagSuggestionStrip: View {
                             .font(.caption)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
-                            .background(Color.buoyPaper)
-                            .overlay(Rectangle().strokeBorder(Color.buoyRule, lineWidth: 1))
+                            .background(Color.lagoonPaper)
+                            .overlay(Rectangle().strokeBorder(Color.lagoonRule, lineWidth: 1))
                     }
                     .buttonStyle(.plain)
                 }
@@ -1022,9 +1022,9 @@ private struct TagSuggestionStrip: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
         }
-        .background(Color.buoyPaper)
+        .background(Color.lagoonPaper)
         .overlay(alignment: .bottom) {
-            Rectangle().frame(height: 1).foregroundStyle(Color.buoyRule)
+            Rectangle().frame(height: 1).foregroundStyle(Color.lagoonRule)
         }
     }
 }
@@ -1113,8 +1113,8 @@ private struct SuggestionStrip: View {
                                 .font(.caption)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 4)
-                                .background(Color.buoyPaper)
-                                .overlay(Rectangle().strokeBorder(Color.buoyRule, lineWidth: 1))
+                                .background(Color.lagoonPaper)
+                                .overlay(Rectangle().strokeBorder(Color.lagoonRule, lineWidth: 1))
                         }
                         .buttonStyle(.plain)
                         .frame(maxWidth: 240)
@@ -1132,9 +1132,9 @@ private struct SuggestionStrip: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
-        .background(Color.buoyPaper)
+        .background(Color.lagoonPaper)
         .overlay(alignment: .bottom) {
-            Rectangle().frame(height: 1).foregroundStyle(Color.buoyRule)
+            Rectangle().frame(height: 1).foregroundStyle(Color.lagoonRule)
         }
     }
 }

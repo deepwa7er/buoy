@@ -1,8 +1,8 @@
-//! Apple-platform FFI surface for Buoy.
+//! Apple-platform FFI surface for Lagoon.
 //!
-//! Wraps `buoy-core` types with `UniFFI` proc macros so that the iOS and
+//! Wraps `lagoon-core` types with `UniFFI` proc macros so that the iOS and
 //! macOS apps can call into the core through generated Swift bindings.
-//! The Linux GTK app does not depend on this crate — it uses `buoy-core`
+//! The Linux GTK app does not depend on this crate — it uses `lagoon-core`
 //! directly without any FFI.
 //!
 //! `UniFFI`'s generated scaffolding uses raw pointers and unsafe FFI; we
@@ -14,7 +14,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use buoy_core::{
+use lagoon_core::{
     Cursor as CoreCursor, Error as CoreError, MatchRange as CoreMatchRange, MiniLmEmbedder,
     Page as CorePage, SavedSearch as CoreSavedSearch, SyncCursor as CoreSyncCursor,
     Thought as CoreThought, ThoughtChange as CoreThoughtChange, ThoughtMatch as CoreThoughtMatch,
@@ -25,11 +25,11 @@ use uuid::Uuid;
 uniffi::setup_scaffolding!();
 
 /// Page size the platform UIs use when they have no more specific need.
-/// Mirrors `buoy_core::DEFAULT_PAGE_SIZE` so Swift and Rust callers agree.
+/// Mirrors `lagoon_core::DEFAULT_PAGE_SIZE` so Swift and Rust callers agree.
 #[uniffi::export]
 #[must_use]
 pub fn default_page_size() -> u32 {
-    u32::try_from(buoy_core::DEFAULT_PAGE_SIZE).expect("page size fits in u32")
+    u32::try_from(lagoon_core::DEFAULT_PAGE_SIZE).expect("page size fits in u32")
 }
 
 /// Swift-facing thought record. `id` is the UUID as a lowercase hyphenated

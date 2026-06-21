@@ -1,20 +1,20 @@
 [Unit]
-Description=buoy notes web app
-Documentation=https://github.com/deepwa7er/buoy
+Description=lagoon notes web app
+Documentation=https://github.com/deepwa7er/lagoon
 # Order after tailscaled so the Tailscale interface/IP exists before we bind.
 After=network-online.target tailscaled.service
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=buoy
-Group=buoy
-ExecStart=/usr/local/bin/buoy-server --config /etc/buoy/config.toml
+User=lagoon
+Group=lagoon
+ExecStart=/usr/local/bin/lagoon-server --config /etc/lagoon/config.toml
 Restart=on-failure
 RestartSec=2
 
 # Hardening — the service serves static files, reads the embedding model, and
-# reads/writes only its own SQLite database under /var/lib/buoy.
+# reads/writes only its own SQLite database under /var/lib/lagoon.
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
@@ -25,7 +25,7 @@ RestrictNamespaces=true
 RestrictSUIDSGID=true
 LockPersonality=true
 # The store lives here; everything else is read-only under ProtectSystem=strict.
-ReadWritePaths=/var/lib/buoy
+ReadWritePaths=/var/lib/lagoon
 
 [Install]
 WantedBy=multi-user.target

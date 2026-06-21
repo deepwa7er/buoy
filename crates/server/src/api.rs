@@ -1,4 +1,4 @@
-//! HTTP API: JSON DTOs over the buoy core's `ThoughtStore`, mirroring the
+//! HTTP API: JSON DTOs over the lagoon core's `ThoughtStore`, mirroring the
 //! operations the native clients get through the `UniFFI` layer.
 //!
 //! The core's `ThoughtStore` is synchronous and `!Sync` (it owns a rusqlite
@@ -15,7 +15,7 @@ use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use buoy_core::{
+use lagoon_core::{
     Cursor, EditEntry, MatchRange, Page, SavedSearch, SyncCursor, Thought, ThoughtChange,
     ThoughtMatch, ThoughtStore,
 };
@@ -245,7 +245,7 @@ pub async fn list_thoughts(
     Query(q): Query<ListQuery>,
 ) -> Result<Json<PageDto>, AppError> {
     let before = q.before.as_deref().map(decode_cursor).transpose()?;
-    let limit = q.limit.unwrap_or(buoy_core::DEFAULT_PAGE_SIZE);
+    let limit = q.limit.unwrap_or(lagoon_core::DEFAULT_PAGE_SIZE);
     let page = blocking(store, move |s| s.list_paginated(before, limit)).await?;
     Ok(Json(PageDto::from(page)))
 }
@@ -527,7 +527,7 @@ pub async fn healthz() -> &'static str {
 async fn blocking<T, F>(store: Shared, f: F) -> Result<T, AppError>
 where
     T: Send + 'static,
-    F: FnOnce(&ThoughtStore) -> buoy_core::Result<T> + Send + 'static,
+    F: FnOnce(&ThoughtStore) -> lagoon_core::Result<T> + Send + 'static,
 {
     tokio::task::spawn_blocking(move || {
         let guard = store.lock().unwrap_or_else(PoisonError::into_inner);
@@ -554,10 +554,10 @@ impl AppError {
     }
 }
 
-impl From<buoy_core::Error> for AppError {
-    fn from(e: buoy_core::Error) -> Self {
+impl From<lagoon_core::Error> for AppError {
+    fn from(e: lagoon_core::Error) -> Self {
         match e {
-            buoy_core::Error::NotFound { .. } => Self::NotFound(e.to_string()),
+            lagoon_core::Error::NotFound { .. } => Self::NotFound(e.to_string()),
             other => Self::Internal(other.to_string()),
         }
     }

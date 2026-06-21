@@ -1,6 +1,6 @@
-//! Buoy core library.
+//! Lagoon core library.
 //!
-//! Shared business logic for the Buoy note-taking app, consumed by the iOS,
+//! Shared business logic for the Lagoon note-taking app, consumed by the iOS,
 //! macOS, and web clients. See `docs/plan-poc.md` and `docs/plan-buildout.md`
 //! at the repository root for design and roadmap.
 

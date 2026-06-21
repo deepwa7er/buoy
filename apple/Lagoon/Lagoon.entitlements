@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<!--
-	  Outgoing network connections, for syncing with the buoy server over the
+	  Outgoing network connections, for syncing with the lagoon server over the
 	  tailnet. The App Sandbox / Hardened Runtime entitlements are still added by
 	  their build settings (ENABLE_APP_SANDBOX, ENABLE_HARDENED_RUNTIME); this
 	  file only adds the network-client capability they don't cover.

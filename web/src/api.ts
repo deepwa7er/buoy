@@ -1,4 +1,4 @@
-// Typed client for the buoy-server JSON API. Same-origin in production; the Vite
+// Typed client for the lagoon-server JSON API. Same-origin in production; the Vite
 // dev server proxies /api to the Rust backend on :8092.
 
 import type { EditEntry, Page, SavedSearch, Thought, ThoughtMatch } from "./types";

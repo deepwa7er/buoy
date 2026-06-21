@@ -1,5 +1,5 @@
 [package]
-name = "buoy-core"
+name = "lagoon-core"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
@@ -7,7 +7,7 @@ publish.workspace = true
 license.workspace = true
 
 [lib]
-name = "buoy_core"
+name = "lagoon_core"
 crate-type = ["rlib", "staticlib"]
 
 [dependencies]

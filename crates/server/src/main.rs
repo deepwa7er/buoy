@@ -1,6 +1,6 @@
-//! buoy-server — a thin axum service that exposes the buoy core's `ThoughtStore`
+//! lagoon-server — a thin axum service that exposes the lagoon core's `ThoughtStore`
 //! as a JSON API and serves the web frontend. It holds the canonical store for
-//! the web app and runs on the tailnet (see `buoy.toml`). The native clients are
+//! the web app and runs on the tailnet (see `lagoon.toml`). The native clients are
 //! unaffected; this is a separate, server-side store.
 
 mod api;
@@ -17,19 +17,19 @@ use axum::routing::{delete, get, post, put};
 use clap::Parser;
 use tower_http::services::{ServeDir, ServeFile};
 
-use buoy_core::{MiniLmEmbedder, ThoughtStore};
+use lagoon_core::{MiniLmEmbedder, ThoughtStore};
 
 use crate::api::Shared;
 use crate::config::Config;
 
-const DEFAULT_CONFIG_PATH: &str = "/etc/buoy/config.toml";
+const DEFAULT_CONFIG_PATH: &str = "/etc/lagoon/config.toml";
 
 /// How many thoughts to embed per backfill batch, and how long to idle between
 /// sweeps once caught up (newly captured thoughts get embedded on the next sweep).
 const EMBED_BATCH: usize = 32;
 const EMBED_IDLE_SECS: u64 = 30;
 
-/// buoy-server — serves the buoy notes web app over a server-side store.
+/// lagoon-server — serves the lagoon notes web app over a server-side store.
 #[derive(Debug, Parser)]
 #[command(version, about)]
 struct Cli {
@@ -43,7 +43,7 @@ async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "buoy_server=info".into()),
+                .unwrap_or_else(|_| "lagoon_server=info".into()),
         )
         .init();
 
@@ -114,7 +114,7 @@ async fn main() -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(addr)
         .await
         .with_context(|| format!("binding {addr}"))?;
-    tracing::info!(%addr, "buoy-server listening");
+    tracing::info!(%addr, "lagoon-server listening");
 
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
@@ -134,7 +134,7 @@ async fn embedder_task(store: Shared, model_dir: PathBuf) {
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
                 .set_embedder(Box::new(embedder));
-            buoy_core::Result::Ok(())
+            lagoon_core::Result::Ok(())
         })
         .await
     };

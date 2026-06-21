@@ -30,7 +30,7 @@ export function App() {
 
   const [hideActioned, setHideActioned] = useState<boolean>(() => {
     try {
-      return localStorage.getItem("buoy.hideActioned") === "true";
+      return localStorage.getItem("lagoon.hideActioned") === "true";
     } catch {
       return false;
     }
@@ -283,7 +283,7 @@ export function App() {
     setHideActioned((prev) => {
       const next = !prev;
       try {
-        localStorage.setItem("buoy.hideActioned", String(next));
+        localStorage.setItem("lagoon.hideActioned", String(next));
       } catch {
         // ignore
       }
@@ -342,13 +342,13 @@ export function App() {
     <div className="mx-auto flex h-full max-w-2xl flex-col">
       {/* Documentation furniture — on-brand for the instrument school. */}
       <div className="flex gap-6 border-b border-rule px-4 py-1.5 text-[10px] uppercase tracking-wider text-ink-faint">
-        <span>DOC. BUOY-001</span>
+        <span>DOC. LAGOON-001</span>
         <span>REV. 0.1.0</span>
         <span className="ml-auto">CLASSIFICATION · PERSONAL</span>
       </div>
 
       <header className="flex items-baseline gap-3 border-b border-rule-strong px-4 py-3">
-        <h1 className="text-base font-bold uppercase tracking-[0.2em] text-ink">buoy</h1>
+        <h1 className="text-base font-bold uppercase tracking-[0.2em] text-ink">lagoon</h1>
         <span className="text-[11px] uppercase tracking-wide text-ink-muted">
           capture-first notes
         </span>
@@ -519,7 +519,7 @@ export function App() {
           >
             {hideActioned ? "show done" : "hide done"}
           </button>
-          <span>buoy v0.1.0</span>
+          <span>lagoon v0.1.0</span>
         </div>
       </footer>
     </div>

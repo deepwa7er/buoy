@@ -1,6 +1,6 @@
 //! Types for cross-device sync.
 //!
-//! buoy syncs against a server-authoritative store (the VPS): each client pushes
+//! lagoon syncs against a server-authoritative store (the VPS): each client pushes
 //! its locally-modified rows and pulls the server's changes since a cursor,
 //! reconciling by last-writer-wins on `updated_at`. Deletes propagate as
 //! tombstones (`deleted_at = Some`). See `ThoughtStore::changes_since`,

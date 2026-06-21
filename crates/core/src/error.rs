@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use uuid::Uuid;
 
-/// Errors produced by the Buoy core.
+/// Errors produced by the Lagoon core.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// The underlying `SQLite` operation failed.

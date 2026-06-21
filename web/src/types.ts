@@ -1,4 +1,4 @@
-// Mirrors the JSON DTOs served by buoy-server (crates/server/src/api.rs).
+// Mirrors the JSON DTOs served by lagoon-server (crates/server/src/api.rs).
 
 export interface Thought {
   id: string;

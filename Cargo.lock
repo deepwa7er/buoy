@@ -250,50 +250,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72f5acc6cb2ba439de613abc23857ec3d78374d8ed5ac84e9d11336e87da8649"
 
 [[package]]
-name = "buoy-apple-ffi"
-version = "0.1.0"
-dependencies = [
- "buoy-core",
- "thiserror 2.0.18",
- "uniffi",
- "uuid",
-]
-
-[[package]]
-name = "buoy-core"
-version = "0.1.0"
-dependencies = [
- "candle-core",
- "candle-nn",
- "candle-transformers",
- "rayon",
- "rusqlite",
- "serde_json",
- "tempfile",
- "thiserror 2.0.18",
- "tokenizers 0.23.1",
- "uuid",
-]
-
-[[package]]
-name = "buoy-server"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "axum",
- "buoy-core",
- "clap",
- "serde",
- "serde_json",
- "tokio",
- "toml 0.8.23",
- "tower-http",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
 name = "bytemuck"
 version = "1.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1178,6 +1134,50 @@ dependencies = [
  "futures-util",
  "once_cell",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "lagoon-apple-ffi"
+version = "0.1.0"
+dependencies = [
+ "lagoon-core",
+ "thiserror 2.0.18",
+ "uniffi",
+ "uuid",
+]
+
+[[package]]
+name = "lagoon-core"
+version = "0.1.0"
+dependencies = [
+ "candle-core",
+ "candle-nn",
+ "candle-transformers",
+ "rayon",
+ "rusqlite",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokenizers 0.23.1",
+ "uuid",
+]
+
+[[package]]
+name = "lagoon-server"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "clap",
+ "lagoon-core",
+ "serde",
+ "serde_json",
+ "tokio",
+ "toml 0.8.23",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]

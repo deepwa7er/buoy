@@ -1,4 +1,4 @@
-# Buoy — Proof of Concept Plan
+# Lagoon — Proof of Concept Plan
 
 ## Goal
 
@@ -54,7 +54,7 @@ The Rust core takes a SQLite **file path as a parameter** — it never decides s
 - Cargo workspace at repo root
   - `crates/core/` — the Rust library
   - `crates/linux/` — the GTK binary
-- `apple/Buoy.xcodeproj` — Xcode project with iOS + macOS targets
+- `apple/Lagoon.xcodeproj` — Xcode project with iOS + macOS targets
 - `justfile` with `just build-all`, `just build-ios`, `just build-mac`, `just build-linux`
 - `.gitignore`, basic CI placeholder (no CI yet — defer)
 
@@ -68,7 +68,7 @@ Build in isolation, fully tested before any platform integration.
 - Migration handling (manual or `refinery` — manual is fine for one table)
 - Unit tests using in-memory SQLite
 
-**Done when:** `cargo test -p buoy-core` passes; calling `create` then `list` returns the inserted row.
+**Done when:** `cargo test -p lagoon-core` passes; calling `create` then `list` returns the inserted row.
 
 ### POC-2: Cross-compilation
 
@@ -83,8 +83,8 @@ Stand up the toolchain for every target before touching any UI.
 
 ### POC-3: UniFFI bridge
 
-- `crates/core/src/buoy.udl` defines the Swift-facing interface (or use the procedural macro variant — pick one approach, document choice)
-- Build step generates `Buoy.swift` (the bindings)
+- `crates/core/src/lagoon.udl` defines the Swift-facing interface (or use the procedural macro variant — pick one approach, document choice)
+- Build step generates `Lagoon.swift` (the bindings)
 - xcframework includes the generated bindings alongside the static lib
 
 **Done when:** the xcframework imports cleanly into an empty Xcode project and `ThoughtStore` is callable from Swift.
@@ -108,7 +108,7 @@ These three subphases run **in parallel** — same week, ideally same day, switc
 
 **POC-6: Linux shell**
 - `crates/linux/` binary using `gtk4-rs`
-- Depends on `buoy-core` directly (Rust → Rust, no FFI)
+- Depends on `lagoon-core` directly (Rust → Rust, no FFI)
 - Single `gtk::ApplicationWindow` with `Entry`, `Button`, `ListBox`
 - Click save → calls core → list refreshes
 - Test on Linux (or in VM/container during macOS development)

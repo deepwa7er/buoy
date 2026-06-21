@@ -3,28 +3,28 @@
 #
 # Routine deploy: build the web frontend (bun) + backend (static musl
 # cross-compile) locally, ship the binary and the built web assets. Infra
-# provisioning — the `buoy` service user, directory layout, config, embedding
+# provisioning — the `lagoon` service user, directory layout, config, embedding
 # model download, and the systemd unit — is deploy/provision.sh, run once on
 # first setup. The musl toolchain is wired in .cargo/config.toml.
-name = "buoy"
+name = "lagoon"
 host = "deepwa7er"
 
 [build]
-cmd = "(cd web && bun install && bun run build) && cargo build --release -p buoy-server --target x86_64-unknown-linux-musl"
+cmd = "(cd web && bun install && bun run build) && cargo build --release -p lagoon-server --target x86_64-unknown-linux-musl"
 
 [[artifacts]]
-src = "target/x86_64-unknown-linux-musl/release/buoy-server"
-dest = "/usr/local/bin/buoy-server"
+src = "target/x86_64-unknown-linux-musl/release/lagoon-server"
+dest = "/usr/local/bin/lagoon-server"
 
 [[artifacts]]
 kind = "dir"
 src = "web/dist"
-dest = "/opt/buoy/web"
+dest = "/opt/lagoon/web"
 
-# buoy binds the tailnet IP (no loopback), so health is the unit's active state.
-# (default health = `systemctl is-active buoy`)
+# lagoon binds the tailnet IP (no loopback), so health is the unit's active state.
+# (default health = `systemctl is-active lagoon`)
 
-# Monitored by lighthouse: tugboat enrolls buoy.service in lighthouse.target on
+# Monitored by lighthouse: tugboat enrolls lagoon.service in lighthouse.target on
 # every deploy, so it shows up in the lighthouse dashboard and harbor's graph.
 [lighthouse]
 enroll = true
