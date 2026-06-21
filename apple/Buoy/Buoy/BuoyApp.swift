@@ -12,6 +12,7 @@ struct BuoyApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .tint(Color(red: 0.910, green: 0.349, blue: 0.047))
         }
         // Registers the background-refresh handler (the modern replacement for
         // BGTaskScheduler.register in an AppDelegate). iOS only — macOS keeps

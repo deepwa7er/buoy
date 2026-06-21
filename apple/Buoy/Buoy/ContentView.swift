@@ -1,9 +1,43 @@
 import BuoyCore
 import SwiftUI
 
-#if os(macOS)
+#if os(iOS)
+import UIKit
+#elseif os(macOS)
 import AppKit
 #endif
+
+// MARK: – Design tokens (U.S. Graphics School: paper+ink, signal orange, zero radius)
+
+private extension Color {
+    /// Single signal accent — caution orange, used sparingly for action/state.
+    static let buoyAccent = Color(red: 0.910, green: 0.349, blue: 0.047)
+    #if os(iOS)
+    /// Warm paper in light mode; near-black terminal in dark mode.
+    static let buoyPaper = Color(UIColor {
+        $0.userInterfaceStyle == .dark
+            ? UIColor(red: 0.07, green: 0.07, blue: 0.06, alpha: 1)
+            : UIColor(red: 0.957, green: 0.953, blue: 0.933, alpha: 1)
+    })
+    /// Hairline rule — structural separators and borders.
+    static let buoyRule = Color(UIColor {
+        $0.userInterfaceStyle == .dark
+            ? UIColor(red: 0.25, green: 0.24, blue: 0.23, alpha: 1)
+            : UIColor(red: 0.824, green: 0.816, blue: 0.784, alpha: 1)
+    })
+    #else
+    static let buoyPaper = Color(NSColor(name: nil, dynamicProvider: { appearance in
+        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            ? NSColor(red: 0.07, green: 0.07, blue: 0.06, alpha: 1)
+            : NSColor(red: 0.957, green: 0.953, blue: 0.933, alpha: 1)
+    }))
+    static let buoyRule = Color(NSColor(name: nil, dynamicProvider: { appearance in
+        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            ? NSColor(red: 0.25, green: 0.24, blue: 0.23, alpha: 1)
+            : NSColor(red: 0.824, green: 0.816, blue: 0.784, alpha: 1)
+    }))
+    #endif
+}
 
 @MainActor
 @Observable
@@ -476,9 +510,14 @@ struct ContentView: View {
                     }
                 }
             }
-            .navigationTitle("Buoy")
+            .navigationTitle("BUOY")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .background(Color.buoyPaper)
+            #if os(iOS)
+            .toolbarBackground(Color.buoyPaper, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
             #endif
             .searchable(text: $searchText, prompt: "Search thoughts")
             .onChange(of: searchText) { _, query in
@@ -516,6 +555,7 @@ struct ContentView: View {
                 }
             }
         }
+        .fontDesign(.monospaced)
         .task {
             await model.open()
             composerFocused = true
@@ -619,9 +659,13 @@ struct ContentView: View {
                         // one scrolls into view, pull in the next page.
                         Task { await model.loadOlderIfNeeded(visibleId: thought.id) }
                     }
+                    .listRowBackground(Color.buoyPaper)
+                    .listRowSeparatorTint(Color.buoyRule)
                 }
             }
             .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(Color.buoyPaper)
             .defaultScrollAnchor(.bottom)
             .refreshable { await model.sync() }
             .onChange(of: scrollTarget) { _, target in
@@ -635,7 +679,8 @@ struct ContentView: View {
     }
 
     private var composer: some View {
-        HStack(alignment: .bottom, spacing: 8) {
+        let isEmpty = model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return HStack(alignment: .bottom, spacing: 8) {
             ZStack(alignment: .topLeading) {
                 TextEditor(text: $model.draft)
                     .scrollContentBackground(.hidden)
@@ -654,12 +699,20 @@ struct ContentView: View {
                 }
             }
 
-            Button(model.isEditing ? "Update" : "Save") {
+            Button {
                 Task { await model.save() }
+            } label: {
+                Text(model.isEditing ? "Update" : "Save")
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(isEmpty ? Color.buoyRule : Color.buoyAccent)
+                    .foregroundStyle(.white)
             }
-            .disabled(model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .buttonStyle(.plain)
+            .disabled(isEmpty)
         }
         .padding(12)
+        .background(Color.buoyPaper)
     }
 
     #if os(macOS)
@@ -769,10 +822,13 @@ private struct OfflineBanner: View {
                 .font(.caption)
             Spacer()
         }
-        .foregroundStyle(.secondary)
+        .foregroundStyle(Color.buoyAccent)
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
-        .background(.quaternary)
+        .background(Color.buoyPaper)
+        .overlay(alignment: .bottom) {
+            Rectangle().frame(height: 1).foregroundStyle(Color.buoyRule)
+        }
     }
 }
 
@@ -783,7 +839,7 @@ private struct EditingBanner: View {
         HStack(spacing: 6) {
             Image(systemName: "pencil")
                 .imageScale(.small)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color.buoyAccent)
             Text("Editing thought")
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -791,11 +847,20 @@ private struct EditingBanner: View {
             Button("Cancel", action: onCancel)
                 .buttonStyle(.plain)
                 .font(.caption)
-                .foregroundStyle(.tint)
+                .foregroundStyle(Color.buoyAccent)
         }
-        .padding(.horizontal, 12)
+        .padding(.leading, 15)
+        .padding(.trailing, 12)
         .padding(.vertical, 6)
-        .background(Color.accentColor.opacity(0.08))
+        .background {
+            HStack(spacing: 0) {
+                Color.buoyAccent.frame(width: 3)
+                Color.buoyPaper
+            }
+        }
+        .overlay(alignment: .bottom) {
+            Rectangle().frame(height: 1).foregroundStyle(Color.buoyRule)
+        }
     }
 }
 
@@ -811,8 +876,12 @@ private struct SearchResultsList: View {
                 SearchResultRow(match: match)
                     .contentShape(Rectangle())
                     .onTapGesture { onSelect(match) }
+                    .listRowBackground(Color.buoyPaper)
+                    .listRowSeparatorTint(Color.buoyRule)
             }
             .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(Color.buoyPaper)
         }
     }
 }
@@ -904,7 +973,8 @@ private struct SavedSearchBar: View {
                         .font(.caption)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
-                        .background(Color.accentColor.opacity(0.10), in: Capsule())
+                        .background(Color.buoyPaper)
+                        .overlay(Rectangle().strokeBorder(Color.buoyRule, lineWidth: 1))
                     }
                     .buttonStyle(.plain)
                     .contextMenu {
@@ -919,6 +989,10 @@ private struct SavedSearchBar: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
+        }
+        .background(Color.buoyPaper)
+        .overlay(alignment: .bottom) {
+            Rectangle().frame(height: 1).foregroundStyle(Color.buoyRule)
         }
     }
 }
@@ -939,7 +1013,8 @@ private struct TagSuggestionStrip: View {
                             .font(.caption)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
-                            .background(Color.accentColor.opacity(0.10), in: Capsule())
+                            .background(Color.buoyPaper)
+                            .overlay(Rectangle().strokeBorder(Color.buoyRule, lineWidth: 1))
                     }
                     .buttonStyle(.plain)
                 }
@@ -947,7 +1022,10 @@ private struct TagSuggestionStrip: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
         }
-        .background(.bar)
+        .background(Color.buoyPaper)
+        .overlay(alignment: .bottom) {
+            Rectangle().frame(height: 1).foregroundStyle(Color.buoyRule)
+        }
     }
 }
 
@@ -1035,10 +1113,8 @@ private struct SuggestionStrip: View {
                                 .font(.caption)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 4)
-                                .background(
-                                    Color.accentColor.opacity(0.08),
-                                    in: RoundedRectangle(cornerRadius: 6)
-                                )
+                                .background(Color.buoyPaper)
+                                .overlay(Rectangle().strokeBorder(Color.buoyRule, lineWidth: 1))
                         }
                         .buttonStyle(.plain)
                         .frame(maxWidth: 240)
@@ -1056,6 +1132,10 @@ private struct SuggestionStrip: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
+        .background(Color.buoyPaper)
+        .overlay(alignment: .bottom) {
+            Rectangle().frame(height: 1).foregroundStyle(Color.buoyRule)
+        }
     }
 }
 
