@@ -70,6 +70,18 @@ button {
   outline-offset: -1px;
 }
 
+/* Mobile browsers (iOS Safari especially) auto-zoom when a focused form control
+ * renders below 16px, forcing the reader to pinch back out. The terminal
+ * aesthetic uses 13px type, so lift controls to 16px only on coarse pointers —
+ * desktop keeps the tight monospace, touch devices stop zooming. */
+@media (pointer: coarse) {
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}
+
 /* Search highlight inside a snippet — flat amber wash, no rounding. */
 mark {
   background: var(--color-mark);
