@@ -34,22 +34,27 @@ export function ThoughtRow({
       id={`t-${thought.id}`}
       className={`border-b border-rule px-4 py-2.5 ${editing ? "bg-surface-2" : ""} ${actioned ? "opacity-40" : ""}`}
     >
-      <div className="flex items-start gap-3">
-        {/* Live/settled: a flat amber square marks a still-mutable thought. */}
-        <span
-          className={`mt-1.5 size-2 shrink-0 ${thought.is_settled ? "bg-transparent" : "bg-accent"}`}
-          title={thought.is_settled ? "settled" : "live — edits overwrite until it settles"}
-        />
-        {/* The note body is selectable text, not an edit trigger, so it can be
-            read and copied freely; editing is an explicit action via the "edit"
-            button. A div (not a button) keeps the inline tag chips from nesting
-            inside a button. */}
-        <div
-          className={`flex-1 cursor-text whitespace-pre-wrap break-words text-left text-ink ${actioned ? "line-through decoration-ink-faint" : ""}`}
-        >
-          <TaggedText text={thought.text} onTagClick={onTagClick} />
+      {/* On narrow viewports the action cluster would otherwise crowd the note
+          into half the row, so stack it below the body and only sit it beside
+          the text once there's room (sm+). */}
+      <div className="flex flex-col gap-1.5 sm:flex-row sm:items-start sm:gap-3">
+        <div className="flex min-w-0 flex-1 items-start gap-3">
+          {/* Live/settled: a flat amber square marks a still-mutable thought. */}
+          <span
+            className={`mt-1.5 size-2 shrink-0 ${thought.is_settled ? "bg-transparent" : "bg-accent"}`}
+            title={thought.is_settled ? "settled" : "live — edits overwrite until it settles"}
+          />
+          {/* The note body is selectable text, not an edit trigger, so it can be
+              read and copied freely; editing is an explicit action via the "edit"
+              button. A div (not a button) keeps the inline tag chips from nesting
+              inside a button. */}
+          <div
+            className={`min-w-0 flex-1 cursor-text whitespace-pre-wrap break-words text-left text-ink ${actioned ? "line-through decoration-ink-faint" : ""}`}
+          >
+            <TaggedText text={thought.text} onTagClick={onTagClick} />
+          </div>
         </div>
-        <div className="flex shrink-0 items-center gap-3 pt-px text-[11px] uppercase tracking-wide text-ink-faint">
+        <div className="flex shrink-0 items-center gap-3 self-end text-[11px] uppercase tracking-wide text-ink-faint sm:self-auto sm:pt-px">
           <time
             dateTime={new Date(thought.created_at).toISOString()}
             title={new Date(thought.created_at).toLocaleString()}

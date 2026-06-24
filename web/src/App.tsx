@@ -341,33 +341,38 @@ export function App() {
   return (
     <div className="mx-auto flex h-full max-w-2xl flex-col">
       {/* Documentation furniture — on-brand for the instrument school. */}
-      <div className="flex gap-6 border-b border-rule px-4 py-1.5 text-[10px] uppercase tracking-wider text-ink-faint">
+      <div className="flex flex-wrap gap-x-6 gap-y-1 border-b border-rule px-4 py-1.5 text-[10px] uppercase tracking-wider text-ink-faint">
         <span>DOC. LAGOON-001</span>
         <span>REV. 0.1.0</span>
         <span className="ml-auto">CLASSIFICATION · PERSONAL</span>
       </div>
 
-      <header className="flex items-baseline gap-3 border-b border-rule-strong px-4 py-3">
+      {/* On phones the fixed-width search box overflows the row, so let the
+          header wrap and drop the search+pin onto their own full-width line;
+          from sm+ they sit inline on the right exactly as before. */}
+      <header className="flex flex-wrap items-baseline gap-x-3 gap-y-2 border-b border-rule-strong px-4 py-3">
         <h1 className="text-base font-bold uppercase tracking-[0.2em] text-ink">lagoon</h1>
         <span className="text-[11px] uppercase tracking-wide text-ink-muted">
           capture-first notes
         </span>
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="search… or #tag"
-          aria-label="search"
-          className="ml-auto w-44 border border-rule bg-surface px-2 py-1 text-ink placeholder:text-ink-faint focus:border-accent focus:outline-none"
-        />
-        <button
-          type="button"
-          onClick={() => void pinSearch()}
-          disabled={!query.trim()}
-          title="pin this search"
-          className="border border-rule px-2 py-1 text-[11px] uppercase tracking-wide text-ink-muted hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-30"
-        >
-          pin
-        </button>
+        <div className="ml-auto flex w-full items-center gap-3 sm:w-auto">
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="search… or #tag"
+            aria-label="search"
+            className="min-w-0 flex-1 border border-rule bg-surface px-2 py-1 text-ink placeholder:text-ink-faint focus:border-accent focus:outline-none sm:w-44 sm:flex-none"
+          />
+          <button
+            type="button"
+            onClick={() => void pinSearch()}
+            disabled={!query.trim()}
+            title="pin this search"
+            className="shrink-0 border border-rule px-2 py-1 text-[11px] uppercase tracking-wide text-ink-muted hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-30"
+          >
+            pin
+          </button>
+        </div>
       </header>
 
       <SavedSearches
